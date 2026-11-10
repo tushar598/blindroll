@@ -1,0 +1,11 @@
+{
+  "name": "blindroll",
+  "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "vectors": "pnpm --filter @blindroll/core vectors",
+    "test:contracts": "cd contracts && cargo test"
+  }
+}

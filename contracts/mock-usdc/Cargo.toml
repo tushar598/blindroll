@@ -1,0 +1,22 @@
+[package]
+name = "mock-usdc"
+description = "TEST ONLY: open-mint NEP-141 token with 6 decimals for Blindroll on testnet and sandbox. Refuses to run on mainnet account IDs."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = { workspace = true }
+near-contract-standards = { workspace = true }
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(near)']

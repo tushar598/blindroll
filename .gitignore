@@ -1,0 +1,15 @@
+node_modules/
+.next/
+dist/
+target/
+*.tsbuildinfo
+.DS_Store
+# secrets: only .env.example is committed
+.env
+.env.*
+!.env.example
+*.pem
+# local data
+*.sqlite
+*.sqlite-journal
+.near-credentials/
