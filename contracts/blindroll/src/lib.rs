@@ -12,7 +12,7 @@ mod tests;
 
 use near_sdk::json_types::U128;
 use near_sdk::serde_json::{self, json};
-use near_sdk::store::{LookupMap, LookupSet};
+use near_sdk::store::LookupMap;
 use near_sdk::{
     AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, Promise, PromiseError, env, near,
     require,
@@ -24,7 +24,7 @@ use merkle::{from_hex, is_valid_run_key, to_hex};
 /// payout target. NEP-145 tokens refund it when the account is already registered.
 pub const TOKEN_STORAGE_DEPOSIT: NearToken =
     NearToken::from_yoctonear(1_250_000_000_000_000_000_000);
-/// Bytes of contract storage reserved per recipient for the `claimed` set entry.
+/// Bytes of contract storage reserved per recipient for the `claimed` record (about 91 used).
 pub const CLAIM_STORAGE_BYTES: u64 = 100;
 /// Claims are refused if paying the token storage deposit would leave less than this spare balance.
 pub const MIN_RESERVE: NearToken = NearToken::from_millinear(100);
@@ -75,6 +75,19 @@ pub struct Run {
     pub claim_deadline_ms: u64,
     pub refund_account: AccountId,
     pub status: RunStatus,
+}
+
+/// What was paid for one claimed leaf. Written when the claim is made, so later accounting
+/// (failed payout, reopen) never depends on an amount supplied by a caller.
+#[near(serializers = [borsh])]
+#[derive(Clone)]
+pub struct ClaimRecord {
+    /// USDC base units taken from the run for this leaf.
+    pub amount: u128,
+    /// True for a `oneclick` payout (the only kind that can be refunded and reopened).
+    pub oneclick: bool,
+    /// False while the token transfer is in flight; true once `on_payout` saw it succeed.
+    pub settled: bool,
 }
 
 /// JSON view of a run: hashes as lowercase hex, amounts as decimal strings.
@@ -184,7 +197,7 @@ pub struct Blindroll {
     paused: bool,
     runs: LookupMap<String, Run>,
     /// Keyed by `sha256(run_key || leaf_hash)`.
-    claimed: LookupSet<[u8; 32]>,
+    claimed: LookupMap<[u8; 32], ClaimRecord>,
     runs_by_approver: LookupMap<AccountId, Vec<String>>,
 }
 
@@ -228,7 +241,7 @@ impl Blindroll {
             relayer,
             paused: false,
             runs: LookupMap::new(StorageKey::Runs),
-            claimed: LookupSet::new(StorageKey::Claimed),
+            claimed: LookupMap::new(StorageKey::Claimed),
             runs_by_approver: LookupMap::new(StorageKey::RunsByApprover),
         }
     }
@@ -564,22 +577,23 @@ impl Blindroll {
         &mut self,
         run_key: String,
         leaf_hash_hex: String,
-        amount: U128,
         payout_kind: String,
     ) -> bool {
         let ok = callback_succeeded();
+        let key = claimed_key(&run_key, &parse_hash(&leaf_hash_hex, "leaf_hash_hex"));
         if ok {
+            if let Some(record) = self.claimed.get_mut(&key) {
+                record.settled = true;
+            }
             emit(
                 "claimed",
                 json!({ "run_key": run_key, "leaf_hash": leaf_hash_hex, "payout_kind": payout_kind }),
             );
         } else {
-            let leaf_hash = parse_hash(&leaf_hash_hex, "leaf_hash_hex");
-            // If an approver already reopened this leaf while the transfer was in flight,
-            // the amount has been released once and must not be released again.
-            if self.claimed.remove(&claimed_key(&run_key, &leaf_hash)) {
+            // Release exactly what was recorded when the claim was made.
+            if let Some(record) = self.claimed.remove(&key) {
                 let mut run = self.expect_run(&run_key);
-                run.claimed_amount = run.claimed_amount.saturating_sub(amount.0);
+                run.claimed_amount -= record.amount;
                 self.runs.insert(run_key.clone(), run);
             }
             emit(
@@ -593,23 +607,27 @@ impl Blindroll {
     // ───────────── Refunds ─────────────
 
     /// For a 1Click payout that was refunded to this contract: lets the recipient claim again.
-    pub fn reopen_claim(&mut self, run_key: String, leaf_hash_hex: String, amount: U128) {
+    /// Releases exactly the amount recorded when the leaf was claimed; the caller supplies none.
+    pub fn reopen_claim(&mut self, run_key: String, leaf_hash_hex: String) {
         let mut run = self.expect_run(&run_key);
         let approver = env::predecessor_account_id();
         require!(
             run.approvers.contains(&approver),
             "Only an approver of this run can reopen a claim"
         );
-        let leaf_hash = parse_hash(&leaf_hash_hex, "leaf_hash_hex");
+        let key = claimed_key(&run_key, &parse_hash(&leaf_hash_hex, "leaf_hash_hex"));
+        let record = self
+            .claimed
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| env::panic_str("This leaf is not marked as claimed"));
         require!(
-            self.claimed.remove(&claimed_key(&run_key, &leaf_hash)),
-            "This leaf is not marked as claimed"
+            record.settled,
+            "The payout for this leaf is still in flight"
         );
-        require!(
-            amount.0 > 0 && amount.0 <= run.claimed_amount,
-            "amount exceeds the run's claimed amount"
-        );
-        run.claimed_amount -= amount.0;
+        require!(record.oneclick, "Only oneclick payouts can be reopened");
+        self.claimed.remove(&key);
+        run.claimed_amount -= record.amount;
         self.runs.insert(run_key.clone(), run);
         emit(
             "claim_reopened",
@@ -634,7 +652,7 @@ impl Blindroll {
 
     pub fn is_claimed(&self, run_key: String, leaf_hash_hex: String) -> bool {
         from_hex::<32>(&leaf_hash_hex)
-            .is_some_and(|h| self.claimed.contains(&claimed_key(&run_key, &h)))
+            .is_some_and(|h| self.claimed.contains_key(&claimed_key(&run_key, &h)))
     }
 
     pub fn get_runs_by_approver(
@@ -724,9 +742,18 @@ impl Blindroll {
         payout: Payout,
     ) -> Promise {
         let run_key = run.run_key.clone();
+        let key = claimed_key(&run_key, &leaf_hash);
         require!(
-            self.claimed.insert(claimed_key(&run_key, &leaf_hash)),
+            !self.claimed.contains_key(&key),
             "This leaf has already been claimed"
+        );
+        self.claimed.insert(
+            key,
+            ClaimRecord {
+                amount,
+                oneclick: matches!(payout, Payout::OneClick { .. }),
+                settled: false,
+            },
         );
         let unspent = run.funded_amount - run.claimed_amount - run.reclaimed_amount;
         require!(amount <= unspent, "Claim exceeds the run's remaining funds");
@@ -737,12 +764,7 @@ impl Blindroll {
         self.token_payment(payout.target(), amount).then(
             Self::ext(env::current_account_id())
                 .with_static_gas(GAS_FOR_CALLBACK)
-                .on_payout(
-                    run_key,
-                    to_hex(&leaf_hash),
-                    U128(amount),
-                    payout.kind().to_string(),
-                ),
+                .on_payout(run_key, to_hex(&leaf_hash), payout.kind().to_string()),
         )
     }
 

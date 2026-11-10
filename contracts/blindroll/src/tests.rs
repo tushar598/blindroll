@@ -23,6 +23,7 @@ const STRANGER: &str = "stranger.test.near";
 
 const NOW: u64 = 1_794_300_000_000;
 const DEADLINE: u64 = 1_794_400_000_000;
+const DEPOSIT: &str = "3ccf686b516ede32e2936c25798378623c99a5fce5bcee411d2df4b4f5fea1e0";
 const HASH_AB: &str = "abababababababababababababababababababababababababababababababab";
 
 fn acc(s: &str) -> AccountId {
@@ -899,12 +900,7 @@ fn near_recipient_claims_to_own_account() {
     assert_invariants(&r);
 
     ctx_callback(PromiseResult::Successful(vec![]), NOW);
-    assert!(c.on_payout(
-        key.clone(),
-        leaf_hash.clone(),
-        U128(800_000_000),
-        "near_ft".into()
-    ));
+    assert!(c.on_payout(key.clone(), leaf_hash.clone(), "near_ft".into()));
     let ev = events();
     assert_eq!(ev[0]["event"], "claimed");
     assert_eq!(ev[0]["data"][0]["leaf_hash"], leaf_hash);
@@ -1249,12 +1245,7 @@ fn failed_payout_is_rolled_back_and_can_be_retried() {
     claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
 
     ctx_callback(PromiseResult::Failed, NOW);
-    assert!(!c.on_payout(
-        key.clone(),
-        leaf_hash.clone(),
-        U128(800_000_000),
-        "near_ft".into()
-    ));
+    assert!(!c.on_payout(key.clone(), leaf_hash.clone(), "near_ft".into()));
     assert_eq!(events()[0]["event"], "claim_failed");
     assert!(!c.is_claimed(key.clone(), leaf_hash.clone()));
     assert_eq!(run_of(&c, &t).claimed_amount.0, 0);
@@ -1262,6 +1253,24 @@ fn failed_payout_is_rolled_back_and_can_be_retried() {
     claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
     assert_paid("ben.test.near", 800_000_000);
     assert_eq!(run_of(&c, &t).claimed_amount.0, 800_000_000);
+}
+
+/// Claims a NEAR leaf through a `oneclick` payout and settles it with a successful callback.
+fn claim_oneclick_settled(c: &mut Blindroll, t: &Value, i: usize) {
+    claim_near_leaf(
+        c,
+        t,
+        i,
+        Payout::OneClick {
+            deposit_address: acc(DEPOSIT),
+        },
+    );
+    ctx_callback(PromiseResult::Successful(vec![]), NOW);
+    assert!(c.on_payout(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][i]).to_string(),
+        "oneclick".into()
+    ));
 }
 
 #[test]
@@ -1273,15 +1282,10 @@ fn approver_reopens_refunded_claim_and_recipient_claims_again() {
     ctx(RELAYER);
     claim_evm_case(&mut c, &e);
     ctx_callback(PromiseResult::Successful(vec![]), NOW);
-    c.on_payout(
-        key.clone(),
-        leaf_hash.clone(),
-        U128(950_000_000),
-        "oneclick".into(),
-    );
+    c.on_payout(key.clone(), leaf_hash.clone(), "oneclick".into());
 
     ctx(A1);
-    c.reopen_claim(key.clone(), leaf_hash.clone(), U128(950_000_000));
+    c.reopen_claim(key.clone(), leaf_hash.clone());
     let ev = events();
     assert_eq!(ev[0]["event"], "claim_reopened");
     assert_eq!(ev[0]["data"][0]["by"], A1);
@@ -1295,15 +1299,34 @@ fn approver_reopens_refunded_claim_and_recipient_claims_again() {
 }
 
 #[test]
+fn reopen_restores_exactly_the_recorded_leaf_amount() {
+    let (mut c, t) = active("claim-demo");
+    let key = s(&t["run_key"]).to_string();
+    claim_oneclick_settled(&mut c, &t, 1); // Ben, 800 USDC
+    claim_oneclick_settled(&mut c, &t, 3); // Hiro, 1,050 USDC
+    assert_eq!(run_of(&c, &t).claimed_amount.0, 1_850_000_000);
+
+    ctx(A2);
+    c.reopen_claim(key.clone(), s(&t["leaf_hashes"][1]).to_string());
+    let r = run_of(&c, &t);
+    assert_eq!(
+        r.claimed_amount.0, 1_050_000_000,
+        "only Ben's 800 USDC is released"
+    );
+    assert_invariants(&r);
+    assert!(!c.is_claimed(key.clone(), s(&t["leaf_hashes"][1]).to_string()));
+    assert!(c.is_claimed(key, s(&t["leaf_hashes"][3]).to_string()));
+}
+
+#[test]
 #[should_panic(expected = "Only an approver")]
 fn stranger_cannot_reopen_claim() {
     let (mut c, t) = active("claim-demo");
-    claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
+    claim_oneclick_settled(&mut c, &t, 1);
     ctx(STRANGER);
     c.reopen_claim(
         s(&t["run_key"]).to_string(),
         s(&t["leaf_hashes"][1]).to_string(),
-        U128(800_000_000),
     );
 }
 
@@ -1315,36 +1338,139 @@ fn cannot_reopen_unclaimed_leaf() {
     c.reopen_claim(
         s(&t["run_key"]).to_string(),
         s(&t["leaf_hashes"][1]).to_string(),
-        U128(800_000_000),
     );
 }
 
 #[test]
-#[should_panic(expected = "amount exceeds the run's claimed amount")]
-fn cannot_reopen_more_than_was_claimed() {
+#[should_panic(expected = "not marked as claimed")]
+fn cannot_reopen_the_same_leaf_twice() {
     let (mut c, t) = active("claim-demo");
-    claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
+    claim_oneclick_settled(&mut c, &t, 1);
     ctx(A1);
     c.reopen_claim(
         s(&t["run_key"]).to_string(),
         s(&t["leaf_hashes"][1]).to_string(),
-        U128(800_000_001),
+    );
+    c.reopen_claim(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][1]).to_string(),
     );
 }
 
 #[test]
-fn failed_payout_after_reopen_does_not_release_funds_twice() {
+#[should_panic(expected = "still in flight")]
+fn cannot_reopen_while_payout_is_in_flight() {
+    let (mut c, t) = active("claim-demo");
+    claim_near_leaf(
+        &mut c,
+        &t,
+        1,
+        Payout::OneClick {
+            deposit_address: acc(DEPOSIT),
+        },
+    );
+    ctx(A1);
+    c.reopen_claim(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][1]).to_string(),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Only oneclick payouts can be reopened")]
+fn cannot_reopen_a_near_ft_payout() {
+    let (mut c, t) = active("claim-demo");
+    claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
+    ctx_callback(PromiseResult::Successful(vec![]), NOW);
+    c.on_payout(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][1]).to_string(),
+        "near_ft".into(),
+    );
+    ctx(A1);
+    c.reopen_claim(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][1]).to_string(),
+    );
+}
+
+#[test]
+fn failed_payout_releases_the_recorded_amount_only_once() {
     let (mut c, t) = active("claim-demo");
     let key = s(&t["run_key"]).to_string();
     let leaf_hash = s(&t["leaf_hashes"][1]).to_string();
-    claim_near_leaf(&mut c, &t, 3, near_ft("hiro.testnet"));
+    claim_oneclick_settled(&mut c, &t, 3);
     claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
-    ctx(A1);
-    c.reopen_claim(key.clone(), leaf_hash.clone(), U128(800_000_000));
     ctx_callback(PromiseResult::Failed, NOW);
-    c.on_payout(key, leaf_hash, U128(800_000_000), "near_ft".into());
-    // Hiro's 1,050 USDC stays accounted for.
+    c.on_payout(key.clone(), leaf_hash.clone(), "near_ft".into());
+    // A duplicated failure callback finds no record and changes nothing.
+    ctx_callback(PromiseResult::Failed, NOW);
+    c.on_payout(key, leaf_hash, "near_ft".into());
     assert_eq!(run_of(&c, &t).claimed_amount.0, 1_050_000_000);
+}
+
+/// Two funded runs that share the contract's single token balance.
+fn two_active_runs() -> (Blindroll, Value, Value) {
+    let mut c = new_contract();
+    let (a, b) = (tree("claim-demo"), tree("sample-run"));
+    for t in [&a, &b] {
+        create(&mut c, t);
+        approve_both(&mut c, s(&t["run_key"]));
+        fund(&mut c, s(&t["run_key"]), total_of(t));
+    }
+    (c, a, b)
+}
+
+#[test]
+fn reopen_then_reclaim_cannot_take_another_runs_funds() {
+    // The old reopen_claim(amount) let an approver overstate the amount, shrink claimed_amount
+    // and have reclaim_unclaimed send out more than the run still held, i.e. another run's USDC.
+    let (mut c, a, b) = two_active_runs();
+    let key = s(&a["run_key"]).to_string();
+    claim_oneclick_settled(&mut c, &a, 1); // 800 USDC left the contract
+    claim_oneclick_settled(&mut c, &a, 3); // 1,050 USDC left the contract
+    ctx(A1);
+    c.reopen_claim(key.clone(), s(&a["leaf_hashes"][1]).to_string()); // 800 USDC refunded by 1Click
+
+    ctx_at(STRANGER, DEADLINE + 1);
+    c.reclaim_unclaimed(key).unwrap().detach();
+    // Exactly run A's own remainder: its total minus Hiro's settled 1,050 USDC.
+    assert_paid(REFUND, total_of(&a) - 1_050_000_000);
+    let ra = run_of(&c, &a);
+    assert_eq!(
+        ra.claimed_amount.0 + ra.reclaimed_amount.0,
+        ra.funded_amount.0
+    );
+    let rb = run_of(&c, &b);
+    assert_eq!((rb.claimed_amount.0, rb.reclaimed_amount.0), (0, 0));
+    assert_eq!(rb.funded_amount.0, total_of(&b));
+}
+
+#[test]
+#[should_panic(expected = "not marked as claimed")]
+fn claim_in_one_run_cannot_be_reopened_through_another_run() {
+    let (mut c, a, b) = two_active_runs();
+    claim_oneclick_settled(&mut c, &a, 1);
+    ctx(A1);
+    c.reopen_claim(
+        s(&b["run_key"]).to_string(),
+        s(&a["leaf_hashes"][1]).to_string(),
+    );
+}
+
+#[test]
+fn a_run_never_pays_out_more_than_it_was_funded_even_with_reopens() {
+    let (mut c, a, _) = two_active_runs();
+    let key = s(&a["run_key"]).to_string();
+    for round in 0..3 {
+        claim_oneclick_settled(&mut c, &a, 1);
+        let r = run_of(&c, &a);
+        assert_eq!(r.claimed_amount.0, 800_000_000, "round {round}");
+        assert_invariants(&r);
+        ctx(A1);
+        c.reopen_claim(key.clone(), s(&a["leaf_hashes"][1]).to_string());
+        assert_eq!(run_of(&c, &a).claimed_amount.0, 0, "round {round}");
+    }
 }
 
 // ───────────── Isolation between runs (invariant 3) ─────────────
@@ -1497,7 +1623,6 @@ fn payout_that_fails_after_close_can_still_be_reclaimed() {
     c.on_payout(
         key.clone(),
         s(&t["leaf_hashes"][1]).to_string(),
-        U128(800_000_000),
         "near_ft".into(),
     );
     ctx_at(STRANGER, DEADLINE + 3);

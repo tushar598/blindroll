@@ -33,7 +33,16 @@ pub struct Run {
 }
 ```
 
-Storage: `runs: LookupMap<String, Run>`, `claimed: LookupSet<[u8; 32]>` keyed by `sha256(run_key || leaf_hash)`. A third map, `runs_by_approver: LookupMap<AccountId, Vec<String>>`, backs the `get_runs_by_approver` view.
+Storage: `runs: LookupMap<String, Run>`, `claimed: LookupMap<[u8; 32], ClaimRecord>` keyed by `sha256(run_key || leaf_hash)`.
+
+```rust
+pub struct ClaimRecord {
+    pub amount: u128,    // what the run paid for this leaf, written when the claim is made
+    pub oneclick: bool,  // payout kind; only oneclick payouts can be reopened
+    pub settled: bool,   // false while the token transfer is in flight, true once on_payout saw it succeed
+}
+```
+The contract never takes a claim amount from a caller after the claim itself: a failed payout and `reopen_claim` both release exactly `ClaimRecord.amount`. A record uses 91 bytes of storage (measured in the sandbox; 100 are prepaid). A third map, `runs_by_approver: LookupMap<AccountId, Vec<String>>`, backs the `get_runs_by_approver` view.
 
 **Storage charge.** `create_run` requires an attached deposit of `run storage bytes × storage_byte_cost + recipient_count × (100 bytes × storage_byte_cost + 0.00125 NEAR)` and refunds the rest. The per-recipient part (0.00225 NEAR) prepays the `claimed` record and the token `storage_deposit` for that recipient's payout target, so claims do not drain the contract's own balance.
 
@@ -99,9 +108,9 @@ All claim methods share these steps:
 2. Recompute `leaf_hash` from `(run_key, chain, address, amount, salt_hex)`.
 3. Verify the Merkle proof against `merkle_root`.
 4. Verify authorization (method-specific, below).
-5. `claimed` must not contain the key; insert it; `claimed_amount += amount`.
-6. Pay with **one receipt to the token holding two actions**: `storage_deposit({account_id: target, registration_only: true})` with 0.00125 NEAR, then `ft_transfer(target, amount)` with 1 yoctoNEAR. The contract always sends the `storage_deposit` instead of first asking whether the target is registered; a NEP-145 token refunds the deposit when the account already is. The two actions are atomic: if either fails, both revert and the deposit comes back. Then callback `on_payout(run_key, leaf_hash_hex, amount, payout_kind)`.
-7. In `on_payout`: if the receipt failed, remove the claimed key and subtract the amount (the claim can be retried). Emit `claimed` or `claim_failed`.
+5. `claimed` must not contain the key; insert a `ClaimRecord { amount, oneclick, settled: false }`; `claimed_amount += amount`.
+6. Pay with **one receipt to the token holding two actions**: `storage_deposit({account_id: target, registration_only: true})` with 0.00125 NEAR, then `ft_transfer(target, amount)` with 1 yoctoNEAR. The contract always sends the `storage_deposit` instead of first asking whether the target is registered; a NEP-145 token refunds the deposit when the account already is. The two actions are atomic: if either fails, both revert and the deposit comes back. Then callback `on_payout(run_key, leaf_hash_hex, payout_kind)`.
+7. In `on_payout`: on success mark the record `settled`; if the receipt failed, remove the record and subtract its stored amount (the claim can be retried). Emit `claimed` or `claim_failed`.
 
 > **Before any mainnet use:** confirm that native USDC on NEAR handles `storage_deposit` with `registration_only: true` the same way as the standard implementation (registers a new account for at most 0.00125 NEAR, refunds the full deposit for a registered one, and does not panic). This has only been exercised against the mock token.
 
@@ -127,7 +136,7 @@ Both resolve to an `ft_transfer` to an account. The kind and target are part of 
 ### Refunds
 | Method | Caller | Behaviour |
 |---|---|---|
-| `reopen_claim(run_key, leaf_hash_hex, amount: U128)` | an approver | For a 1Click payout that was refunded to this contract. Removes the claimed key (it must be set) and subtracts `amount` (must be ≤ `claimed_amount`; the approver is trusted to pass the leaf's amount). Emits `claim_reopened`. The UI must show the 1Click status `REFUNDED` before allowing this |
+| `reopen_claim(run_key, leaf_hash_hex)` | an approver of that run | For a 1Click payout that was refunded to this contract. The leaf must have a `ClaimRecord` in this run that is `settled` and `oneclick`. Removes the record and subtracts the **stored** amount from `claimed_amount`; there is no amount argument. Emits `claim_reopened`. The UI must show the 1Click status `REFUNDED` before allowing this |
 
 1Click quotes set `refundTo` = this contract and `refundType` = `ORIGIN_CHAIN`, so refunded USDC lands back here.
 
@@ -153,11 +162,16 @@ Both resolve to an `ft_transfer` to an account. The kind and target are part of 
 ## Invariants (test all of them)
 
 1. `claimed_amount + reclaimed_amount <= funded_amount <= total_amount`.
-2. A leaf can be paid at most once unless reopened by an approver.
-3. Funds of one run can never pay a claim of another run (amounts are tracked per run, and claims check `amount <= funded_amount - claimed_amount - reclaimed_amount`).
+2. A leaf can be paid at most once unless reopened by an approver. A reopen releases exactly the amount recorded for that leaf, only after its payout settled, and only for `oneclick` payouts.
+3. Funds of one run can never pay a claim of another run (amounts are tracked per run, and claims check `amount <= funded_amount - claimed_amount - reclaimed_amount`; `claimed_amount` only ever changes by amounts recorded in `ClaimRecord`s, so no caller-supplied number can shift funds between runs).
+   - Remaining trust: the contract cannot see whether 1Click really refunded a payout. An approver who reopens a delivered `oneclick` payout lets that leaf be paid a second time, and since all runs share one token balance the second payment would come out of other runs' USDC. See "Open issue: proving the refund" below.
 4. Only `token_id` can fund.
 5. A claim's payout target is exactly the one authorized by the recipient.
 6. After `Closed`, no more claims.
+
+## Open issue: proving the refund
+
+`reopen_claim` trusts the approver that the 1Click refund arrived. A way to remove that trust: keep a contract-wide `liabilities` total (the sum of `funded - claimed - reclaimed` over all runs), and make `reopen_claim` asynchronous: call `ft_balance_of(this contract)` on the token and only complete the reopen in the callback if `balance >= liabilities + amount`. Not implemented; decide before any mainnet use.
 
 ## Gas and deposits
 
