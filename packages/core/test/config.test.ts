@@ -27,3 +27,21 @@ describe("network config guard", () => {
     expect(isTestNetworkAccount("usdc.me.testnet")).toBe(true);
   });
 });
+
+describe("sim sink guard", () => {
+  const base = { network: "testnet", contractId: "blindroll.blindroll-dev.testnet", tokenId: "usdc.blindroll-dev.testnet" };
+  it("allows a test account on a test network", () => {
+    expect(() => assertNetworkConfig({ ...base, simSinkId: "sim-sink.blindroll-dev.testnet" })).not.toThrow();
+    expect(() => assertNetworkConfig({ ...base, simSinkId: "" })).not.toThrow();
+  });
+  it("refuses any sim sink on mainnet", () => {
+    const main = { network: "mainnet", contractId: "blindroll.near", tokenId: "usdc.near" };
+    expect(() => assertNetworkConfig({ ...main, simSinkId: "sim-sink.blindroll.near" })).toThrow("mainnet");
+    expect(() => assertNetworkConfig({ ...main, simSinkId: "sim-sink.blindroll-dev.testnet" })).toThrow("mainnet");
+  });
+  it("refuses a non-test account, the contract or the token as sim sink", () => {
+    expect(() => assertNetworkConfig({ ...base, simSinkId: "sim-sink.near" })).toThrow();
+    expect(() => assertNetworkConfig({ ...base, simSinkId: base.contractId })).toThrow();
+    expect(() => assertNetworkConfig({ ...base, simSinkId: base.tokenId })).toThrow();
+  });
+});

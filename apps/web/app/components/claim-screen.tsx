@@ -5,6 +5,7 @@ import { buildViewMessage } from "@blindroll/core";
 import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { type EvmWallet, connectEvm, discoverEvmWallets, personalSign } from "@/lib/client/evm";
 import { callContract, connectWallet, explorerTx, signInMessage } from "@/lib/client/wallet";
+import { SimulatedBadge } from "./payouts-panel";
 
 interface RunInfo {
   runKey: string;
@@ -23,6 +24,8 @@ interface ClaimInfo {
   txHash: string | null;
   error: string | null;
   simulated: boolean;
+  payoutStatus: string | null;
+  refundTx: string | null;
 }
 interface Row {
   chain: "evm" | "near";
@@ -49,10 +52,23 @@ interface Option {
   simulated: boolean;
   available: boolean;
   unavailableReason?: string;
+  note?: string;
+}
+interface Summary {
+  label: string;
+  receiver: string;
+  amountDisplay: string;
+  simulated: boolean;
+  note?: string;
+  estimatedAmountOut?: string;
+  estimatedMinAmountOut?: string | null;
+  symbol?: string;
+  decimals?: number;
+  holdingAccount?: string;
 }
 type Prepared =
-  | { kind: "evm"; claimId: number; message: string; expiresAtMs: number; summary: { receiver: string; amountDisplay: string } }
-  | { kind: "near"; claimId: number; summary: { receiver: string; amountDisplay: string }; call: { contractId: string; methodName: string; args: object; gasTgas: number; depositYocto: string } };
+  | { kind: "evm"; claimId: number; message: string; expiresAtMs: number; summary: Summary }
+  | { kind: "near"; claimId: number; summary: Summary; call: { contractId: string; methodName: string; args: object; gasTgas: number; depositYocto: string } };
 
 type Signer = { chain: "evm"; wallet: EvmWallet; address: string } | { chain: "near"; address: string };
 
@@ -76,6 +92,7 @@ export function ClaimScreen() {
   const [notListed, setNotListed] = useState(false);
   const [options, setOptions] = useState<Option[] | null>(null);
   const [receiver, setReceiver] = useState("");
+  const [optionId, setOptionId] = useState("near-usdc");
   const [prepared, setPrepared] = useState<Prepared | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +159,7 @@ export function ClaimScreen() {
 
   async function prepare() {
     if (!token) return;
-    const p = await run("prepare", () => api<Prepared>(`/api/claim/${runKey}/prepare`, { token, json: { optionId: "near-usdc", receiver } }));
+    const p = await run("prepare", () => api<Prepared>(`/api/claim/${runKey}/prepare`, { token, json: optionId === "near-usdc" ? { optionId, receiver } : { optionId } }));
     if (p) setPrepared(p);
   }
 
@@ -231,24 +248,42 @@ export function ClaimScreen() {
 
       {row?.claimed && (
         <div className="card border-accent p-6">
-          <p className="font-medium text-accent">✓ Claimed</p>
-          {row.claim ? (
+          <p className="flex items-center gap-2 font-medium text-accent">
+            ✓ Claimed {row.claim?.simulated && <SimulatedBadge />}
+          </p>
+          {!row.claim && <p className="mt-1 text-sm">The contract shows this payout as claimed.</p>}
+          {row.claim && !row.claim.simulated && (
             <p className="mt-1 text-sm leading-6">
               {row.amountDisplay} USDC was sent to <span className="num">{row.claim.payoutTarget}</span>.
-              {row.claim.txHash && (
-                <>
-                  {" "}
-                  <a className="underline" href={explorerTx(info.network, row.claim.txHash)} target="_blank" rel="noreferrer">View the transaction</a>
-                </>
-              )}
             </p>
-          ) : (
-            <p className="mt-1 text-sm">The contract shows this payout as claimed.</p>
           )}
+          {row.claim?.simulated && (
+            <div className="mt-1 space-y-2 text-sm leading-6">
+              <p>
+                {row.claim.payoutStatus === "refunded_simulated"
+                  ? "Refunded (simulated failure). The team has been notified; once they reopen your claim you can claim again here."
+                  : "Delivered (simulated)."}
+              </p>
+              <p className="text-muted">
+                This is a testnet simulation: nothing arrived on the destination chain, because cross-chain delivery (1Click) only exists on mainnet.
+                The contract really paid {row.amountDisplay} test USDC to the holding account <span className="num">{row.claim.payoutTarget}</span>.
+              </p>
+            </div>
+          )}
+          <p className="mt-2 flex flex-wrap gap-x-4 text-sm">
+            {row.claim?.txHash && <a className="underline" href={explorerTx(info.network, row.claim.txHash)} target="_blank" rel="noreferrer">View the claim transaction</a>}
+            {row.claim?.refundTx && <a className="underline" href={explorerTx(info.network, row.claim.refundTx)} target="_blank" rel="noreferrer">View the refund transaction</a>}
+          </p>
         </div>
       )}
 
-      {row && !row.claimed && row.claim?.status === "failed" && (
+      {row && !row.claimed && row.claim?.payoutStatus === "reopened" && (
+        <p className="rounded-md bg-accent-soft px-3 py-2 text-sm text-accent">
+          Your earlier (simulated) payout was refunded and your claim was reopened. You can claim again below.
+        </p>
+      )}
+
+      {row && !row.claimed && row.claim?.status === "failed" && row.claim.payoutStatus !== "reopened" && (
         <p className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">
           The last claim attempt did not go through{row.claim.error ? `: ${row.claim.error}` : ""}. Nothing was paid; you can try again.
         </p>
@@ -261,30 +296,46 @@ export function ClaimScreen() {
           <div className="mt-4 divide-y divide-line rounded-md border border-line">
             {options === null && <p className="p-4 text-sm text-muted">Loading options…</p>}
             {options?.map((o) => (
-              <div key={o.id} className={`p-4 ${o.available ? "bg-accent-soft/40" : "opacity-70"}`}>
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <p className="font-medium">
-                    {o.label}
-                    {o.available && <span className="ml-2 text-xs font-normal text-accent">available</span>}
-                    {o.simulated && <span className="ml-2 rounded border border-warn/40 bg-warn-soft px-1.5 text-xs text-warn">Simulated</span>}
+              <label key={o.id} className={`flex gap-3 p-4 ${o.available ? "cursor-pointer" : "opacity-70"} ${optionId === o.id ? "bg-accent-soft/60" : ""}`}>
+                <input type="radio" name="payout-option" className="mt-1 accent-[var(--accent)]" disabled={!o.available} checked={optionId === o.id} onChange={() => setOptionId(o.id)} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <p className="flex items-center gap-2 font-medium">
+                      {o.label}
+                      {o.simulated && <SimulatedBadge />}
+                    </p>
+                    <p className="num text-sm">
+                      {o.estimated ? "~" : ""}
+                      {formatUnits(o.estimatedAmountOut, o.decimals)} {o.symbol}
+                      {o.estimated && <span className="ml-1 text-xs text-muted">estimated</span>}
+                    </p>
+                  </div>
+                  <p className="mt-1 text-xs text-muted">
+                    {o.feeBps !== undefined && `Fee ~${(o.feeBps / 100).toFixed(2)}% · `}
+                    {o.etaSeconds !== undefined && `about ${o.etaSeconds < 60 ? `${o.etaSeconds} s` : `${Math.round(o.etaSeconds / 60)} min`}`}
+                    {o.estimatedMinAmountOut && ` · at least ${formatUnits(o.estimatedMinAmountOut, o.decimals)} ${o.symbol} after slippage`}
                   </p>
-                  <p className="num text-sm">
-                    {o.estimated ? "~" : ""}
-                    {formatUnits(o.estimatedAmountOut, o.decimals)} {o.symbol}
-                    {o.estimated && <span className="ml-1 text-xs text-muted">estimated</span>}
-                  </p>
+                  {o.note && <p className="mt-1 text-xs text-warn">{o.note}</p>}
+                  {!o.available && o.unavailableReason && <p className="mt-1 text-xs text-warn">{o.unavailableReason}</p>}
                 </div>
-                <p className="mt-1 text-xs text-muted">
-                  {o.feeBps !== undefined && `Fee ~${(o.feeBps / 100).toFixed(2)}% · `}
-                  {o.etaSeconds !== undefined && `about ${o.etaSeconds < 60 ? `${o.etaSeconds} s` : `${Math.round(o.etaSeconds / 60)} min`}`}
-                  {o.estimatedMinAmountOut && ` · at least ${formatUnits(o.estimatedMinAmountOut, o.decimals)} ${o.symbol} after slippage`}
-                </p>
-                {!o.available && o.unavailableReason && <p className="mt-1 text-xs text-warn">{o.unavailableReason}</p>}
-              </div>
+              </label>
             ))}
           </div>
 
-          <div className="mt-5">
+          {optionId !== "near-usdc" && (
+            <div className="mt-5">
+              <p className="text-sm leading-6">
+                Destination: your own address <span className="num break-all">{row.address}</span>.
+              </p>
+              <p className="mt-1 text-xs leading-5 text-warn">
+                Simulated on testnet: you will sign a real claim and the contract will really pay out, but to a holding account. Nothing will arrive at this address.
+              </p>
+              <button className="btn mt-4" disabled={busy !== null} onClick={() => void prepare()}>
+                {busy === "prepare" ? "Checking…" : "Continue"}
+              </button>
+            </div>
+          )}
+          <div className={`mt-5 ${optionId === "near-usdc" ? "" : "hidden"}`}>
             <label className="label" htmlFor="receiver">NEAR account to receive the USDC</label>
             <input id="receiver" className="field num mt-1" value={receiver} onChange={(e) => setReceiver(e.target.value)} placeholder={info.network === "mainnet" ? "you.near" : "you.testnet"} autoComplete="off" spellCheck={false} />
             <p className="mt-1.5 text-xs leading-5 text-muted">
@@ -302,9 +353,26 @@ export function ClaimScreen() {
       {row && !row.claimed && prepared && (
         <div className="card border-ink p-6">
           <p className="font-medium">Review and sign</p>
-          <p className="mt-1 text-sm leading-6">
-            <span className="num">{prepared.summary.amountDisplay} USDC</span> on NEAR to <span className="num">{prepared.summary.receiver}</span>.
-          </p>
+          {prepared.summary.simulated ? (
+            <div className="mt-1 space-y-2 text-sm leading-6">
+              <p className="flex flex-wrap items-center gap-2">
+                <span className="num">{prepared.summary.amountDisplay} USDC</span> as {prepared.summary.label} to <span className="num break-all">{prepared.summary.receiver}</span> <SimulatedBadge />
+              </p>
+              {prepared.summary.estimatedAmountOut && prepared.summary.decimals !== undefined && (
+                <p className="text-muted">
+                  Estimate from mainnet prices: ~{formatUnits(prepared.summary.estimatedAmountOut, prepared.summary.decimals)} {prepared.summary.symbol}
+                  {prepared.summary.estimatedMinAmountOut && `, at least ${formatUnits(prepared.summary.estimatedMinAmountOut, prepared.summary.decimals)} after slippage`}.
+                </p>
+              )}
+              <p className="rounded-md bg-warn-soft px-3 py-2 text-warn">
+                {prepared.summary.note} Holding account: <span className="num">{prepared.summary.holdingAccount}</span>.
+              </p>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm leading-6">
+              <span className="num">{prepared.summary.amountDisplay} USDC</span> on NEAR to <span className="num">{prepared.summary.receiver}</span>.
+            </p>
+          )}
           {prepared.kind === "evm" ? (
             <>
               <p className="label mt-4">Message your wallet will show</p>

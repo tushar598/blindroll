@@ -6,6 +6,7 @@ import { api, errorMessage } from "@/lib/client/api";
 import type { RunView } from "@/lib/client/types";
 import { ChainSteps } from "./chain-steps";
 import { MappingPanel } from "./mapping-panel";
+import { PayoutsPanel } from "./payouts-panel";
 import { ReviewPanel } from "./review-panel";
 import { useSession } from "./session";
 import { StatusPill } from "./status-pill";
@@ -70,6 +71,12 @@ export function RunScreen() {
       {run.finalized && (
         <Section n={3} title="On-chain" done={run.status === "active" || run.status === "closed"}>
           <ChainSteps run={run} accountId={me.accountId} onChanged={reload} />
+        </Section>
+      )}
+
+      {(run.status === "active" || run.status === "closed") && (
+        <Section n={4} title="Claims" done={false}>
+          <PayoutsPanel run={run} />
         </Section>
       )}
     </div>

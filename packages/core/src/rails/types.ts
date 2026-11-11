@@ -27,4 +27,6 @@ export interface PayoutOption {
   /** False when the option can be shown but not chosen yet (with the reason). */
   available: boolean;
   unavailableReason?: string;
+  /** Shown with the option, e.g. what "simulated" means for it. */
+  note?: string;
 }

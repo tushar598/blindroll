@@ -98,8 +98,13 @@ Fixtures: `packages/core/test-vectors/oneclick/` (`tokens.json`, two dry quotes)
 
 ### Testnet behaviour
 - Options board: **real** dry quotes from mainnet 1Click (they don't move funds), labelled "estimated" with "Estimate from mainnet prices". Quoted for EVM recipients (the quote needs a destination address of the right kind); destinations: USDC on Base, USDC on Arbitrum (`ONECLICK_DESTINATIONS`).
-- **As built on 2026-11-11: cross-chain options are shown but cannot be chosen** (`available: false`, with the reason). Nothing is simulated yet.
-- Proposed, **not built, waiting for the owner's answer to a SIMULATION REQUEST**: execution simulated on testnet. The contract pays a `sim-sink.<contract>` account and the backend marks the payout `delivered (simulated)`. Every UI and API response says `simulated: true`.
+- **Execution: simulated, approved by the owner on 2026-11-11** (with the condition that a simulated refund is a real transfer). Active only when `SIM_SINK_ACCOUNT_ID` and `SIM_SINK_PRIVATE_KEY` are set; without them the cross-chain options are shown but cannot be chosen.
+  - The sim sink (`sim-sink.blindroll-dev.testnet`) stands where a 1Click deposit address would be. The recipient signs a real claim message with `payout: oneclick:<sim sink>` and `to: <1Click assetId>:<their EVM address>`; the relayer submits `claim_evm`; the contract really pays the test USDC to the sim sink. The backend marks the payout `delivered_simulated`. Nothing is delivered on the destination chain.
+  - Only EVM recipients, destination = their own verified address.
+  - **Refund → reopen.** An approver presses "Simulate a failed delivery and refund". The failure is simulated; the refund is **real**: the backend signs, as the sim sink, `ft_transfer(receiver_id = Blindroll contract, amount = the claimed amount)`. Only when that transaction has succeeded does the payout become `refunded_simulated` (with `refund_tx`), and only then does the backend hand out the `reopen_claim` call and the UI enable "Reopen claim". A payout can be refunded once. This keeps the contract's balance whole, so a reopened claim is never paid from other runs' funds.
+  - Labelling: `simulated: true` on the option, the prepare/submit/status responses and the payout list; a "Simulated" badge on the option, the review step, the claimed state and the approver's claims list; a row in the README table.
+  - Mainnet: `assertNetworkConfig` rejects any `SIM_SINK_ACCOUNT_ID` when `NEAR_NETWORK=mainnet` (and a non-test account anywhere), `simSinkSender()` returns null on mainnet, and the claim service refuses simulated options and refunds there.
+  - Path to real (mainnet): request a non-dry quote, use its `depositAddress` as the payout target, submit the deposit, poll `/v0/status`; `REFUNDED` then comes from 1Click, not from a button. Not built.
 
 ### Refunds
 `REFUNDED` / `FAILED`: USDC returns to the contract (`refundTo`). The approver UI shows the status and a **Reopen claim** button (`reopen_claim`). The recipient then claims again with a new quote. `INCOMPLETE_DEPOSIT` shouldn't happen (we send the exact amount); treat it as failed and investigate.

@@ -131,6 +131,13 @@ export const claims = sqliteTable("claims", {
   status: text("status").notNull(),
   error: text("error"),
   simulated: integer("simulated", { mode: "boolean" }).notNull(),
+  /** oneclick claims only: delivered_simulated | refunding | refunded_simulated | reopened */
+  payoutStatus: text("payout_status"),
+  /** JSON of the dry quote shown to the recipient at prepare time (estimates). */
+  quoteJson: text("quote_json"),
+  /** The real token transfer that returned the USDC to the contract. */
+  refundTx: text("refund_tx"),
+  reopenTx: text("reopen_tx"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -187,6 +194,12 @@ export function openDb(file: string) {
   const sqlite = new Database(file);
   sqlite.pragma("journal_mode = WAL");
   sqlite.exec(DDL);
+  // Columns added after the first version of a table (no migration tool; see docs/09).
+  const addColumn = (table: string, column: string, type: string) => {
+    const cols = sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === column)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  };
+  for (const c of ["payout_status", "quote_json", "refund_tx", "reopen_tx"]) addColumn("claims", c, "TEXT");
   const now = new Date().toISOString();
   sqlite.prepare("INSERT OR IGNORE INTO orgs (id, name, threshold, refund_account, created_at) VALUES (?, ?, ?, ?, ?)").run(
     DEMO_ORG.id, DEMO_ORG.name, DEMO_ORG.threshold, DEMO_ORG.refundAccount, now,

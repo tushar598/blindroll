@@ -18,7 +18,7 @@ import {
 import { HttpError, consumeNonce, issueNonce } from "./auth";
 import { ONECLICK_DESTINATIONS, ONECLICK_DRY_REFUND_STAND_IN, type ServerConfig } from "./config";
 import { decryptJson } from "./crypto";
-import { type Db, auditLog, claims, orgs, runRows, runs } from "./db";
+import { type Db, auditLog, claims, orgApprovers, orgs, runRows, runs } from "./db";
 import { verifyNep413Signature } from "./nep413";
 import type { RelayFn } from "./relayer";
 import { type ViewScope, createViewToken } from "./session";
@@ -38,7 +38,15 @@ export interface ClaimDeps {
   relay: RelayFn;
   /** Absent when 1Click is not configured; the board then shows only USDC on NEAR. */
   oneclick?: OneClickConfig;
+  /**
+   * TESTNET ONLY. The account that stands in for a 1Click deposit address, and a sender that signs
+   * as it. When present (never on mainnet), cross-chain options can be chosen and are SIMULATED.
+   */
+  simSink?: { accountId: string; send: RelayFn };
 }
+
+export const SIMULATED_NOTE =
+  "Simulated on testnet: 1Click has no testnet, so nothing is delivered on the destination chain. The contract really pays your test USDC to a holding account.";
 
 type RunRecord = typeof runs.$inferSelect;
 type RowRecord = typeof runRows.$inferSelect;
@@ -109,6 +117,7 @@ async function rowView(deps: ClaimDeps, run: RunRecord, row: RowRecord) {
           optionId: c.optionId, payoutKind: c.payoutKind, payoutTarget: c.payoutTarget,
           destinationAsset: c.destinationAsset, destinationAddress: c.destinationAddress,
           txHash: c.claimTx, error: c.error, simulated: c.simulated,
+          payoutStatus: c.payoutStatus, refundTx: c.refundTx,
         }
       : null,
   };
@@ -182,7 +191,7 @@ export async function payoutOptions(deps: ClaimDeps, scope: ViewScope): Promise<
   ];
   // Cross-chain estimates need a destination address of the right kind, so they are quoted for EVM recipients.
   if (deps.oneclick && scope.chain === "evm") {
-    const key = `${row.amount}`;
+    const key = `${deps.config.network}:${row.amount}:${scope.address}:${deps.simSink ? "sim" : "off"}`;
     const hit = quoteCache.get(key);
     if (hit && Date.now() - hit.at < QUOTE_CACHE_MS) {
       options.push(...hit.options);
@@ -208,12 +217,15 @@ export async function payoutOptions(deps: ClaimDeps, scope: ViewScope): Promise<
               symbol, decimals: dest.decimals, estimatedAmountOut: q.amountOut.toString(), estimatedMinAmountOut: q.minAmountOut.toString(),
               ...(dest.decimals === origin.decimals ? { feeBps: feeBps(q.amountIn, q.amountOut) } : {}),
               ...(q.timeEstimateSeconds !== undefined ? { etaSeconds: q.timeEstimateSeconds } : {}),
-              estimated: true, simulated: false,
-              // Cross-chain claims are not built yet on any network; on testnet they cannot be real at all.
-              available: false,
-              unavailableReason: mainnet
-                ? "Cross-chain claims are not enabled in this version."
-                : "Estimate from mainnet prices. Cross-chain delivery does not exist on testnet (1Click is mainnet-only), so this option cannot be chosen here.",
+              estimated: true,
+              ...(mainnet
+                ? { simulated: false, available: false, unavailableReason: "Cross-chain claims are not enabled on mainnet in this version." }
+                : deps.simSink
+                  ? { simulated: true, available: true, note: `Estimate from mainnet prices. ${SIMULATED_NOTE}` }
+                  : {
+                      simulated: false, available: false,
+                      unavailableReason: "Estimate from mainnet prices. Cross-chain delivery does not exist on testnet (1Click is mainnet-only), so this option cannot be chosen here.",
+                    }),
             });
           } catch (err) {
             if (!(err instanceof ValidationError)) throw err;
@@ -245,44 +257,78 @@ async function assertClaimable(deps: ClaimDeps, run: RunRecord, row: RowRecord) 
 /**
  * Fixes the payout target and returns what the recipient must sign.
  * EVM: the exact claim message for personal_sign. NEAR: the claim_near call for their own wallet.
- * Only the USDC-on-NEAR rail can be prepared in this version.
+ *
+ * `near-usdc`: real; `receiver` is the NEAR account that gets the USDC.
+ * `oneclick:<chain>:<symbol>`: TESTNET SIMULATION for EVM recipients. The signed payout target is
+ * the sim sink (where a 1Click deposit address would be on mainnet) and the destination is the
+ * recipient's own verified EVM address.
  */
-export async function prepareClaim(deps: ClaimDeps, scope: ViewScope, input: { optionId: string; receiver: string }) {
+export async function prepareClaim(deps: ClaimDeps, scope: ViewScope, input: { optionId: string; receiver?: string }) {
   const run = loadRun(deps.db, scope.runKey);
   const row = loadRow(deps.db, run, scope);
-  if (input.optionId !== "near-usdc") throw new HttpError(400, "option_unavailable", "That payout option cannot be chosen here");
-  const receiver = input.receiver.trim().toLowerCase();
-  if (!isNearAccountId(receiver)) throw new HttpError(400, "bad_receiver", "Enter a valid NEAR account ID to receive the USDC");
-  if (receiver === run.contractId || receiver === deps.config.tokenId) throw new HttpError(400, "bad_receiver", "That account cannot receive a payout");
-  if (!(await deps.accountExists(receiver))) throw new HttpError(400, "receiver_not_found", `The account ${receiver} does not exist on ${run.network}`);
-  await assertClaimable(deps, run, row);
-
-  const destinationAsset = `nep141:${deps.config.tokenId}`;
   const leaf = { chain: row.chain, address: row.address, amount: row.amount, salt_hex: row.saltHex };
   const proof = JSON.parse(row.proofJson) as string[];
-  const payout = { kind: "near_ft", receiver };
-  const base = {
-    runId: run.id, rowId: row.id, optionId: "near-usdc", payoutKind: "near_ft", payoutTarget: receiver,
-    destinationAsset, destinationAddress: receiver, status: "prepared", simulated: false, createdAt: nowIso(), updatedAt: nowIso(),
-  };
-  const summary = { label: "USDC on NEAR", receiver, amount: row.amount, amountDisplay: formatUsdc(BigInt(row.amount)), simulated: false };
+  const amountDisplay = formatUsdc(BigInt(row.amount));
 
+  let claim: {
+    optionId: string; payoutKind: "near_ft" | "oneclick"; payoutTarget: string; destinationAsset: string; destinationAddress: string;
+    simulated: boolean; quoteJson: string | null;
+  };
+  let summary: Record<string, unknown>;
+
+  if (input.optionId === "near-usdc") {
+    const receiver = (input.receiver ?? "").trim().toLowerCase();
+    if (!isNearAccountId(receiver)) throw new HttpError(400, "bad_receiver", "Enter a valid NEAR account ID to receive the USDC");
+    if (receiver === run.contractId || receiver === deps.config.tokenId || receiver === deps.simSink?.accountId) {
+      throw new HttpError(400, "bad_receiver", "That account cannot receive a payout");
+    }
+    if (!(await deps.accountExists(receiver))) throw new HttpError(400, "receiver_not_found", `The account ${receiver} does not exist on ${run.network}`);
+    claim = {
+      optionId: "near-usdc", payoutKind: "near_ft", payoutTarget: receiver, destinationAsset: `nep141:${deps.config.tokenId}`,
+      destinationAddress: receiver, simulated: false, quoteJson: null,
+    };
+    summary = { label: "USDC on NEAR", receiver, amount: row.amount, amountDisplay, simulated: false };
+  } else {
+    // Cross-chain: only as a labelled simulation, only off mainnet, only for EVM recipients.
+    const option = (await payoutOptions(deps, scope)).options.find((o) => o.id === input.optionId);
+    if (!option || option.rail !== "oneclick" || !option.available || !option.simulated || !deps.simSink || deps.config.network === "mainnet" || row.chain !== "evm") {
+      throw new HttpError(400, "option_unavailable", "That payout option cannot be chosen here");
+    }
+    claim = {
+      optionId: option.id, payoutKind: "oneclick", payoutTarget: deps.simSink.accountId, destinationAsset: option.destinationAsset,
+      destinationAddress: row.address, simulated: true,
+      quoteJson: JSON.stringify({ estimatedAmountOut: option.estimatedAmountOut, estimatedMinAmountOut: option.estimatedMinAmountOut ?? null, symbol: option.symbol, decimals: option.decimals, label: option.label }),
+    };
+    summary = {
+      label: option.label, receiver: row.address, amount: row.amount, amountDisplay, simulated: true, note: SIMULATED_NOTE,
+      estimatedAmountOut: option.estimatedAmountOut, estimatedMinAmountOut: option.estimatedMinAmountOut ?? null, symbol: option.symbol, decimals: option.decimals,
+      holdingAccount: deps.simSink.accountId,
+    };
+  }
+  await assertClaimable(deps, run, row);
+
+  const base = { runId: run.id, rowId: row.id, ...claim, status: "prepared", createdAt: nowIso(), updatedAt: nowIso() };
   if (row.chain === "evm") {
     // Whole seconds; the contract compares against block time in ms.
     const expiresAtMs = Math.floor((Date.now() + CLAIM_TTL_MS) / 1000) * 1000;
     const message = buildClaimMessage({
-      contractId: run.contractId, runKey: run.runKey, leafHashHex: row.leafHash, payoutKind: "near_ft", payoutTarget: receiver,
-      destinationAsset, destinationAddress: receiver, expiresAtMs: BigInt(expiresAtMs),
+      contractId: run.contractId, runKey: run.runKey, leafHashHex: row.leafHash, payoutKind: claim.payoutKind, payoutTarget: claim.payoutTarget,
+      destinationAsset: claim.destinationAsset, destinationAddress: claim.destinationAddress, expiresAtMs: BigInt(expiresAtMs),
     });
     const claimId = deps.db.insert(claims).values({ ...base, expiresAtMs, message }).returning({ id: claims.id }).get().id;
-    return { kind: "evm" as const, claimId, message, expiresAtMs, summary };
+    return { kind: "evm" as const, claimId, message, expiresAtMs, summary, simulated: claim.simulated };
   }
   const claimId = deps.db.insert(claims).values(base).returning({ id: claims.id }).get().id;
   return {
-    kind: "near" as const, claimId, summary,
+    kind: "near" as const, claimId, summary, simulated: claim.simulated,
     // The recipient sends this from their own wallet (the contract requires predecessor == recipient).
-    call: { contractId: run.contractId, methodName: "claim_near", args: { run_key: run.runKey, leaf, proof, payout }, gasTgas: 100, depositYocto: "0" },
+    call: { contractId: run.contractId, methodName: "claim_near", args: { run_key: run.runKey, leaf, proof, payout: { kind: "near_ft", receiver: claim.payoutTarget } }, gasTgas: 100, depositYocto: "0" },
   };
+}
+
+/** The contract's `payout` argument for a stored claim. */
+function payoutArg(claim: { payoutKind: string; payoutTarget: string }) {
+  return claim.payoutKind === "oneclick" ? { kind: "oneclick", deposit_address: claim.payoutTarget } : { kind: "near_ft", receiver: claim.payoutTarget };
 }
 
 function audit(db: Db, actor: string, action: string, runId: number, data: object) {
@@ -338,7 +384,7 @@ export async function submitClaim(deps: ClaimDeps, scope: ViewScope, input: { cl
         run_key: run.runKey,
         leaf: { chain: row.chain, address: row.address, amount: row.amount, salt_hex: row.saltHex },
         proof: JSON.parse(row.proofJson) as string[],
-        payout: { kind: "near_ft", receiver: claim.payoutTarget },
+        payout: payoutArg(claim),
         destination_asset: claim.destinationAsset,
         destination_address: claim.destinationAddress,
         expires_at_ms: claim.expiresAtMs,
@@ -354,9 +400,130 @@ export async function submitClaim(deps: ClaimDeps, scope: ViewScope, input: { cl
   // The contract is the source of truth: a failed token transfer rolls the claim back on-chain.
   const claimed = await isClaimedOnChain(deps, run, row).catch(() => false);
   const status = claimed ? "confirmed" : "failed";
-  db.update(claims).set({ status, claimTx: txHash, error: claimed ? null : (error ?? "The contract did not record the claim"), updatedAt: nowIso() }).where(eq(claims.id, claim.id)).run();
+  db.update(claims)
+    .set({
+      status, claimTx: txHash, error: claimed ? null : (error ?? "The contract did not record the claim"), updatedAt: nowIso(),
+      // Simulated cross-chain payout: the USDC is now in the holding account; nothing was delivered anywhere else.
+      ...(claimed && claim.payoutKind === "oneclick" && claim.simulated ? { payoutStatus: "delivered_simulated" } : {}),
+    })
+    .where(eq(claims.id, claim.id))
+    .run();
   if (claimed) db.update(runRows).set({ status: "claimed" }).where(eq(runRows.id, row.id)).run();
   audit(db, `relayer:${deps.config.relayerAccountId}`, claimed ? "claim_submitted" : "claim_failed", run.id, { claim_id: claim.id, tx: txHash });
   if (!claimed) throw new HttpError(502, "claim_failed", `The claim transaction did not go through${error ? `: ${error}` : ""}`);
-  return { status, txHash, simulated: false };
+  return { status, txHash, simulated: claim.simulated };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Approver side: payouts of a run, the simulated refund (a REAL token transfer) and reopen.
+// ---------------------------------------------------------------------------------------------
+
+function loadRunForApprover(db: Db, runKey: string, accountId: string): RunRecord {
+  const run = db.select().from(runs).where(eq(runs.runKey, runKey)).get();
+  if (!run) throw new HttpError(404, "run_not_found", "Run not found");
+  const ok = db.select().from(orgApprovers).where(and(eq(orgApprovers.orgId, run.orgId), eq(orgApprovers.accountId, accountId))).get();
+  if (!ok) throw new HttpError(403, "forbidden", "You are not an approver of this run's organization");
+  return run;
+}
+
+/** Confirmed claims of a run with their payout state, for the approver's run page. */
+export function listPayouts(deps: ClaimDeps, input: { accountId: string; runKey: string }) {
+  const run = loadRunForApprover(deps.db, input.runKey, input.accountId);
+  const rows = new Map(deps.db.select().from(runRows).where(eq(runRows.runId, run.id)).all().map((r) => [r.id, r]));
+  return {
+    simSinkAccountId: deps.simSink?.accountId ?? null,
+    payouts: deps.db
+      .select()
+      .from(claims)
+      .where(eq(claims.runId, run.id))
+      .orderBy(desc(claims.id))
+      .all()
+      .filter((c) => c.status === "confirmed")
+      .map((c) => {
+        const row = rows.get(c.rowId)!;
+        return {
+          claimId: c.id, chain: row.chain, address: row.address, amount: row.amount, amountDisplay: formatUsdc(BigInt(row.amount)),
+          leafHash: row.leafHash, optionId: c.optionId, payoutKind: c.payoutKind, payoutTarget: c.payoutTarget,
+          destinationAsset: c.destinationAsset, destinationAddress: c.destinationAddress, claimTx: c.claimTx,
+          simulated: c.simulated, payoutStatus: c.payoutStatus, refundTx: c.refundTx, reopenTx: c.reopenTx, updatedAt: c.updatedAt,
+        };
+      }),
+  };
+}
+
+function loadSimulatedPayout(deps: ClaimDeps, run: RunRecord, claimId: number) {
+  const claim = deps.db.select().from(claims).where(and(eq(claims.id, claimId), eq(claims.runId, run.id))).get();
+  if (!claim || claim.status !== "confirmed" || claim.payoutKind !== "oneclick" || !claim.simulated) {
+    throw new HttpError(404, "payout_not_found", "That is not a simulated cross-chain payout of this run");
+  }
+  const row = deps.db.select().from(runRows).where(eq(runRows.id, claim.rowId)).get()!;
+  return { claim, row };
+}
+
+/**
+ * "Refunded (simulated)": the 1Click failure is simulated, the refund is REAL. The sim sink signs an
+ * ft_transfer of exactly the claimed amount back to the Blindroll contract. Only after that
+ * transaction succeeded is the payout marked refunded, which is what allows reopen_claim: the
+ * contract then really holds the USDC again, so a second claim is not paid from other runs' funds.
+ */
+export async function refundSimulatedPayout(deps: ClaimDeps, input: { accountId: string; runKey: string; claimId: number }) {
+  const { db } = deps;
+  if (deps.config.network === "mainnet" || !deps.simSink) throw new HttpError(409, "simulation_off", "Simulated payouts are not enabled in this deployment");
+  const run = loadRunForApprover(db, input.runKey, input.accountId);
+  const { claim, row } = loadSimulatedPayout(deps, run, input.claimId);
+  if (claim.payoutTarget !== deps.simSink.accountId) throw new HttpError(409, "wrong_sink", "This payout went to another holding account");
+  // Take it atomically: a payout can be refunded at most once.
+  const taken = db.update(claims).set({ payoutStatus: "refunding", updatedAt: nowIso() })
+    .where(and(eq(claims.id, claim.id), eq(claims.payoutStatus, "delivered_simulated"))).returning({ id: claims.id }).get();
+  if (!taken) throw new HttpError(409, "wrong_status", `This payout is "${claim.payoutStatus}", so it cannot be refunded`);
+
+  let txHash: string | null = null;
+  let failure: string | null = null;
+  try {
+    const out = await deps.simSink.send({
+      receiverId: deps.config.tokenId,
+      methodName: "ft_transfer",
+      args: { receiver_id: run.contractId, amount: row.amount, memo: `blindroll simulated refund ${run.runKey}` },
+      gasTgas: 30,
+      depositYocto: "1",
+    });
+    txHash = out.txHash || null;
+    failure = out.failure;
+    if (!txHash && !failure) failure = "the transfer returned no transaction hash";
+  } catch (err) {
+    failure = err instanceof Error ? err.message.slice(0, 300) : "the refund transfer could not be sent";
+  }
+  if (failure !== null) {
+    // Nothing came back: the payout stays "delivered (simulated)" and reopen stays blocked.
+    db.update(claims).set({ payoutStatus: "delivered_simulated", updatedAt: nowIso() }).where(eq(claims.id, claim.id)).run();
+    audit(db, input.accountId, "simulated_refund_failed", run.id, { claim_id: claim.id, tx: txHash });
+    throw new HttpError(502, "refund_failed", `The refund transfer did not go through: ${failure}`);
+  }
+  db.update(claims).set({ payoutStatus: "refunded_simulated", refundTx: txHash, updatedAt: nowIso() }).where(eq(claims.id, claim.id)).run();
+  db.update(runRows).set({ status: "refunded" }).where(eq(runRows.id, row.id)).run();
+  audit(db, input.accountId, "simulated_refund_sent", run.id, { claim_id: claim.id, tx: txHash, amount: row.amount });
+  return { payoutStatus: "refunded_simulated", refundTx: txHash, simulated: true };
+}
+
+/** The reopen_claim call for the approver's wallet. Refused until the refund transfer exists. */
+export function getReopenCall(deps: ClaimDeps, input: { accountId: string; runKey: string; claimId: number }) {
+  const run = loadRunForApprover(deps.db, input.runKey, input.accountId);
+  const { claim, row } = loadSimulatedPayout(deps, run, input.claimId);
+  if (claim.payoutStatus !== "refunded_simulated" || !claim.refundTx) {
+    throw new HttpError(409, "not_refunded", "Reopen is only possible after the refund transfer has gone through");
+  }
+  return { contractId: run.contractId, methodName: "reopen_claim", args: { run_key: run.runKey, leaf_hash_hex: row.leafHash }, gasTgas: 30, depositYocto: "0" };
+}
+
+/** After the approver sent reopen_claim: record it once the contract no longer shows the leaf as claimed. */
+export async function recordReopen(deps: ClaimDeps, input: { accountId: string; runKey: string; claimId: number; txHash?: string }) {
+  const run = loadRunForApprover(deps.db, input.runKey, input.accountId);
+  const { claim, row } = loadSimulatedPayout(deps, run, input.claimId);
+  if (claim.payoutStatus !== "refunded_simulated") throw new HttpError(409, "not_refunded", "This payout has not been refunded");
+  if (await isClaimedOnChain(deps, run, row)) throw new HttpError(409, "still_claimed", "The contract still shows this payout as claimed; send reopen_claim first");
+  const txHash = input.txHash && /^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(input.txHash) ? input.txHash : null;
+  deps.db.update(claims).set({ payoutStatus: "reopened", reopenTx: txHash, updatedAt: nowIso() }).where(eq(claims.id, claim.id)).run();
+  deps.db.update(runRows).set({ status: "reopened" }).where(eq(runRows.id, row.id)).run();
+  audit(deps.db, input.accountId, "claim_reopened", run.id, { claim_id: claim.id, tx: txHash });
+  return { payoutStatus: "reopened", reopenTx: txHash, simulated: true };
 }

@@ -5,7 +5,7 @@ import { serverConfig } from "./config";
 import { db } from "./db";
 import type { RunDeps } from "./runs";
 import type { ClaimDeps } from "./claims";
-import { relay } from "./relayer";
+import { relay, simSinkSender } from "./relayer";
 import { accountExists, isFullAccessKey, viewFunction } from "./rpc";
 import { SESSION_COOKIE, type ViewScope, readSessionToken, readViewToken } from "./session";
 
@@ -67,6 +67,7 @@ export type RunCtx = { params: Promise<{ runKey: string }> };
 export function claimDeps(): ClaimDeps {
   const config = serverConfig();
   const jwt = process.env.ONECLICK_JWT;
+  const simSend = simSinkSender(); // null on mainnet or when not configured
   return {
     db: db(),
     config,
@@ -74,6 +75,7 @@ export function claimDeps(): ClaimDeps {
     accountExists,
     isFullAccessKey,
     relay,
+    ...(simSend && config.simSinkAccountId ? { simSink: { accountId: config.simSinkAccountId, send: simSend } } : {}),
     ...(jwt ? { oneclick: { baseUrl: config.oneclickBaseUrl, jwt, fetch: (url, init) => fetch(url, { ...init, cache: "no-store" }) } } : {}),
   };
 }

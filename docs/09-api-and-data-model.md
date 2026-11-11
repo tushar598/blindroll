@@ -37,6 +37,14 @@ Sign-in details as built: the nonce is 32 random bytes (base64); the signed mess
 Run `status`: `needs_mapping` → `review` → `finalized` → then the on-chain status in lowercase (`draft`, `approved`, `active`, `closed`, `cancelled`). `finalize` body: `{claimDays}` (1–365, default 14).
 | GET | `/api/runs/:runKey/export?format=csv|json` | Reconciled export |
 
+### Payouts (approver session)
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/runs/:runKey/payouts` | Confirmed claims with payout state; simulated ones carry `simulated: true` |
+| POST | `/api/runs/:runKey/payouts/:claimId/refund` | Testnet simulation of a failed delivery; sends the **real** refund transfer from the sim sink → `{payoutStatus, refundTx, simulated: true}` |
+| GET | `/api/runs/:runKey/payouts/:claimId/reopen` | The `reopen_claim` call for the approver's wallet; `409 not_refunded` until the refund transfer exists |
+| POST | `/api/runs/:runKey/payouts/:claimId/reopen` | `{txHash}`; recorded once the contract shows the leaf unclaimed |
+
 ### Report (public read)
 | Method | Path | Notes |
 |---|---|---|
@@ -98,7 +106,7 @@ Differences in the built schema (`apps/web/lib/server/db.ts`; tables are created
 - `row_edits(id, run_id, by_account, enc_edit, created_at)`: the ordered, encrypted edit log. `overrides(run_id, rule_id, row_number, by_account, enc_reason, created_at)`, unique per finding.
 - `ai_calls` is keyed by `csv_sha256` (the cache): `enc_evidence` holds the request body, raw response bytes, signature and checks; `attestation_json` holds the raw preflight report.
 - `run_rows` are written at finalize, ordered by leaf hash.
-- `claims(id, run_id, row_id, option_id, payout_kind, payout_target, destination_asset, destination_address, expires_at_ms, message, claim_tx, status, error, simulated, created_at, updated_at)`; status `prepared` → `submitted` → `confirmed` | `failed`. `payouts` is not built yet (it belongs to the 1Click path).
+- `claims(id, run_id, row_id, option_id, payout_kind, payout_target, destination_asset, destination_address, expires_at_ms, message, claim_tx, status, error, simulated, created_at, updated_at)`; status `prepared` → `submitted` → `confirmed` | `failed`. Payout state lives on the claim (no separate `payouts` table yet): `payout_status` (`delivered_simulated` → `refunding` → `refunded_simulated` → `reopened`), `quote_json`, `refund_tx`, `reopen_tx`. Columns added after the first version are created at startup with `ALTER TABLE`.
 - Public claim endpoints are rate-limited per IP in memory. A run that is not on-chain yet answers `404` like an unknown run.
 - Database file: `<repo root>/data/blindroll.sqlite` (git-ignored); `BLINDROLL_DB_FILE` overrides it for tests.
 

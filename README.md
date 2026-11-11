@@ -36,7 +36,12 @@ Regenerate the shared vectors after changing a format: `pnpm vectors`, then reru
 | USDC | **Mock token** (`contracts/mock-usdc`, symbol `mUSDC`, open mint, no value) on sandbox and testnet. Real USDC only on mainnet, which this project has not used |
 | EVM signatures in tests | Real secp256k1 signatures, made with the public Hardhat/Anvil development keys #0 and #1 (test fixtures, not secrets) |
 
-Nothing is simulated in the product yet. Anything simulated later will be listed here, marked `simulated: true` in API responses and badged in the UI.
+| Testnet deployment, approver flow, AI column mapping, claims paid as USDC on NEAR | **Real** testnet transactions and a real NEAR AI Cloud call with a verified response signature |
+| Cross-chain payout estimates (USDC on Base / Arbitrum) | **Real** 1Click dry quotes, priced with mainnet assets and labelled "estimated". A dry quote moves no funds |
+| Cross-chain delivery on testnet | **Simulated.** 1Click has no testnet. The recipient really signs, the contract really verifies and really pays the test USDC, but to a holding account (`SIM_SINK_ACCOUNT_ID`) where a 1Click deposit address would be. Nothing arrives on the destination chain. Marked `simulated: true` in API responses and badged "Simulated" on the claim page and the approver's run page |
+| Failed delivery → refund → reopen on testnet | The **failure is simulated** (an approver presses a button). The **refund is real**: the holding account transfers the same test USDC back to the contract, and only after that transaction does the app allow the real on-chain `reopen_claim`. The refund transaction is linked in the UI |
+
+The simulation exists only on test networks: with `NEAR_NETWORK=mainnet` the app refuses to start if a holding account is configured, and never offers a simulated option.
 
 ## Mock USDC is test-only
 

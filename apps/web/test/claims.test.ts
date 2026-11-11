@@ -5,7 +5,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type OneClickFetch, buildViewMessage, sha256 } from "@blindroll/core";
-import { type ClaimDeps, claimStatus, issueViewChallenge, payoutOptions, prepareClaim, publicRunInfo, submitClaim, verifyView } from "../lib/server/claims";
+import { type ClaimDeps, claimStatus, getReopenCall, issueViewChallenge, listPayouts, payoutOptions, prepareClaim, publicRunInfo, recordReopen, refundSimulatedPayout, submitClaim, verifyView } from "../lib/server/claims";
 import type { ServerConfig } from "../lib/server/config";
 import { openDb, runs } from "../lib/server/db";
 import { base58Encode, parseRelayerKey, serializeTransaction, signTransaction } from "../lib/server/near-tx";
@@ -27,14 +27,16 @@ const APPROVER = "tushar1962005.testnet";
 const config: ServerConfig = {
   network: "testnet", rpcUrl: "http://rpc.invalid", contractId: "blindroll.blindroll-dev.testnet", tokenId: "usdc.blindroll-dev.testnet",
   aiBaseUrl: "http://ai.invalid", aiModel: "m", aiLive: false, appUrl: "http://localhost:3000",
-  relayerAccountId: "relayer.blindroll-dev.testnet", oneclickBaseUrl: "https://1click.invalid/v0",
+  relayerAccountId: "relayer.blindroll-dev.testnet", oneclickBaseUrl: "https://1click.invalid/v0", simSinkAccountId: null,
 };
 const csv = `wallet,amount,memo,name\n${EVM_ADDR},1000,October,Eve\n${NEAR_ACCT},250.5,Docs,Nia\n`;
 const dir = new URL("../../../packages/core/test-vectors/oneclick/", import.meta.url);
 const tokensText = readFileSync(new URL("tokens.json", dir), "utf8");
 const quoteText = JSON.stringify(JSON.parse(readFileSync(new URL("quote-dry-base-usdc.json", dir), "utf8")).response);
 
-async function setup() {
+const SINK = "sim-sink.blindroll-dev.testnet";
+
+async function setup(opts: { sim?: boolean; network?: "testnet" | "mainnet" } = {}) {
   const db = openDb(":memory:");
   const runDeps: RunDeps = { db, config };
   const { runKey } = await createRun(runDeps, { accountId: APPROVER, orgId: "demo-org", name: "Claims", csvBytes: new TextEncoder().encode(csv) });
@@ -48,7 +50,10 @@ async function setup() {
   finalize(runDeps, { accountId: APPROVER, runKey });
   db.update(runs).set({ status: "active" }).run();
 
-  const chain = { claimed: new Set<string>(), status: "Active", deadline: Date.now() + 86_400_000, relayed: [] as Array<{ methodName: string; args: Record<string, unknown> }>, failRelay: false };
+  const chain = {
+    claimed: new Set<string>(), status: "Active", deadline: Date.now() + 86_400_000, relayed: [] as Array<{ methodName: string; args: Record<string, unknown> }>, failRelay: false,
+    sinkSent: [] as Array<{ receiverId: string; methodName: string; args: Record<string, unknown>; depositYocto?: string }>, failSink: false,
+  };
   let quoteBodies: string[] = [];
   const oneclickFetch: OneClickFetch = async (url, init) => {
     if (url.endsWith("/tokens")) return { status: 200, ok: true, text: async () => tokensText };
@@ -56,7 +61,18 @@ async function setup() {
     return { status: 201, ok: true, text: async () => quoteText };
   };
   const deps: ClaimDeps = {
-    db, config,
+    db, config: { ...config, network: opts.network ?? "testnet", simSinkAccountId: opts.sim ? SINK : null },
+    ...(opts.sim
+      ? {
+          simSink: {
+            accountId: SINK,
+            send: async (call) => {
+              chain.sinkSent.push({ receiverId: call.receiverId, methodName: call.methodName, args: call.args as Record<string, unknown>, depositYocto: call.depositYocto });
+              return chain.failSink ? { txHash: "6".repeat(44), failure: "not enough balance", logs: [] } : { txHash: "5".repeat(44), failure: null, logs: [] };
+            },
+          },
+        }
+      : {}),
     view: async (_c, method, args) => {
       if (method === "is_claimed") return chain.claimed.has((args as { leaf_hash_hex: string }).leaf_hash_hex);
       return { status: chain.status, claim_deadline_ms: chain.deadline };
@@ -283,5 +299,105 @@ describe("relayer transaction builder", () => {
     expect(signed[body.length]).toBe(0);
     expect(ed25519.verify(signed.slice(body.length + 1), sha256(body), pub)).toBe(true);
     expect(txHash).toBe(base58Encode(sha256(body)));
+  });
+});
+
+describe("simulated cross-chain claim on testnet (sim sink) with a real refund before reopen", () => {
+  const scope = (runKey: string) => ({ runKey, chain: "evm", address: EVM_ADDR });
+
+  async function claimSimulated() {
+    const ctx = await setup({ sim: true });
+    const s = scope(ctx.runKey);
+    const { options } = await payoutOptions(ctx.deps, s);
+    const p = await prepareClaim(ctx.deps, s, { optionId: "oneclick:base:USDC" });
+    if (p.kind !== "evm") throw new Error("expected an EVM claim");
+    const r = await submitClaim(ctx.deps, s, { claimId: p.claimId, signature: await evm.signMessage({ message: p.message }) });
+    return { ...ctx, s, options, p, r };
+  }
+
+  it("labels the options as simulated and selectable only when the sim sink is configured", async () => {
+    const { options } = await claimSimulated();
+    expect(options[0]).toMatchObject({ id: "near-usdc", simulated: false, available: true });
+    expect(options[1]).toMatchObject({ id: "oneclick:base:USDC", simulated: true, available: true, estimated: true });
+    expect(options[1]!.note).toContain("Simulated on testnet");
+    const off = await setup();
+    expect((await payoutOptions(off.deps, scope(off.runKey))).options[1]).toMatchObject({ simulated: false, available: false });
+  });
+
+  it("signs payout oneclick:<sim sink>, relays it, and marks everything simulated", async () => {
+    const { deps, s, p, r, chain, runKey } = await claimSimulated();
+    expect(p.simulated).toBe(true);
+    expect(p.summary).toMatchObject({ label: "USDC on Base", simulated: true, holdingAccount: SINK, receiver: EVM_ADDR, estimatedAmountOut: "999805609" });
+    expect(p.message).toContain(`payout: oneclick:${SINK}`);
+    expect(p.message).toContain(`to: nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near:${EVM_ADDR}`);
+    expect(r).toMatchObject({ status: "confirmed", simulated: true });
+    expect(chain.relayed[0]).toMatchObject({ methodName: "claim_evm", args: { payout: { kind: "oneclick", deposit_address: SINK }, destination_address: EVM_ADDR } });
+    expect(await claimStatus(deps, s)).toMatchObject({ claimed: true, claim: { simulated: true, payoutStatus: "delivered_simulated", payoutTarget: SINK, refundTx: null } });
+    const list = listPayouts(deps, { accountId: APPROVER, runKey });
+    expect(list.simSinkAccountId).toBe(SINK);
+    expect(list.payouts[0]).toMatchObject({ simulated: true, payoutStatus: "delivered_simulated", payoutKind: "oneclick", amount: "1000000000" });
+  });
+
+  it("blocks reopen until the sim sink has really sent the exact amount back to the contract", async () => {
+    const { deps, p, chain, runKey, db, s } = await claimSimulated();
+    const who = { accountId: APPROVER, runKey, claimId: p.claimId };
+    expect(() => getReopenCall(deps, who)).toThrow("after the refund transfer");
+    await expect(recordReopen(deps, who)).rejects.toMatchObject({ code: "not_refunded" });
+
+    // A refund transfer that fails changes nothing and keeps reopen blocked.
+    chain.failSink = true;
+    await expect(refundSimulatedPayout(deps, who)).rejects.toMatchObject({ code: "refund_failed" });
+    expect(listPayouts(deps, who).payouts[0]).toMatchObject({ payoutStatus: "delivered_simulated", refundTx: null });
+    expect(() => getReopenCall(deps, who)).toThrow();
+
+    chain.failSink = false;
+    const refund = await refundSimulatedPayout(deps, who);
+    expect(refund).toEqual({ payoutStatus: "refunded_simulated", refundTx: "5".repeat(44), simulated: true });
+    expect(chain.sinkSent.at(-1)).toMatchObject({
+      receiverId: config.tokenId, methodName: "ft_transfer", depositYocto: "1",
+      args: { receiver_id: config.contractId, amount: "1000000000" },
+    });
+    await expect(refundSimulatedPayout(deps, who)).rejects.toMatchObject({ code: "wrong_status" }); // never twice
+    expect(chain.sinkSent).toHaveLength(2);
+    expect(await claimStatus(deps, s)).toMatchObject({ claim: { payoutStatus: "refunded_simulated", refundTx: "5".repeat(44) } });
+
+    const call = getReopenCall(deps, who);
+    expect(call).toMatchObject({ contractId: config.contractId, methodName: "reopen_claim", args: { run_key: runKey } });
+    // The approver has not sent reopen_claim yet: the contract still shows the leaf as claimed.
+    await expect(recordReopen(deps, who)).rejects.toMatchObject({ code: "still_claimed" });
+    chain.claimed.delete((call.args as { leaf_hash_hex: string }).leaf_hash_hex);
+    expect(await recordReopen(deps, { ...who, txHash: "4".repeat(44) })).toMatchObject({ payoutStatus: "reopened", reopenTx: "4".repeat(44) });
+    expect((db.$client.prepare("SELECT status FROM run_rows WHERE address = ?").get(EVM_ADDR) as { status: string }).status).toBe("reopened");
+
+    // The recipient can claim again, this time for real USDC on NEAR.
+    const again = await prepareClaim(deps, s, { optionId: "near-usdc", receiver: "payee.testnet" });
+    if (again.kind !== "evm") throw new Error("expected an EVM claim");
+    expect((await submitClaim(deps, s, { claimId: again.claimId, signature: await evm.signMessage({ message: again.message }) })).simulated).toBe(false);
+  });
+
+  it("only approvers can refund, and only simulated cross-chain payouts", async () => {
+    const { deps, p, runKey, chain } = await claimSimulated();
+    await expect(refundSimulatedPayout(deps, { accountId: "stranger.testnet", runKey, claimId: p.claimId })).rejects.toMatchObject({ code: "forbidden" });
+    await expect(refundSimulatedPayout(deps, { accountId: APPROVER, runKey, claimId: 9999 })).rejects.toMatchObject({ code: "payout_not_found" });
+    expect(chain.sinkSent).toHaveLength(0);
+    const real = await setup({ sim: true });
+    const rp = await prepareClaim(real.deps, scope(real.runKey), { optionId: "near-usdc", receiver: "payee.testnet" });
+    if (rp.kind !== "evm") throw new Error("expected an EVM claim");
+    await submitClaim(real.deps, scope(real.runKey), { claimId: rp.claimId, signature: await evm.signMessage({ message: rp.message }) });
+    await expect(refundSimulatedPayout(real.deps, { accountId: APPROVER, runKey: real.runKey, claimId: rp.claimId })).rejects.toMatchObject({ code: "payout_not_found" });
+  });
+
+  it("never simulates on mainnet, even if a sim sink were injected", async () => {
+    const { deps, runKey } = await setup({ sim: true, network: "mainnet" });
+    const options = (await payoutOptions(deps, scope(runKey))).options;
+    expect(options.filter((o) => o.simulated)).toEqual([]);
+    expect(options[1]).toMatchObject({ available: false });
+    await expect(prepareClaim(deps, scope(runKey), { optionId: "oneclick:base:USDC" })).rejects.toMatchObject({ code: "option_unavailable" });
+    await expect(refundSimulatedPayout(deps, { accountId: APPROVER, runKey, claimId: 1 })).rejects.toMatchObject({ code: "simulation_off" });
+  });
+
+  it("the payout cannot be sent to the sim sink through the real rail", async () => {
+    const { deps, runKey } = await setup({ sim: true });
+    await expect(prepareClaim(deps, scope(runKey), { optionId: "near-usdc", receiver: SINK })).rejects.toMatchObject({ code: "bad_receiver" });
   });
 });

@@ -73,6 +73,8 @@ NEAR_AI_LIVE=0                                      # 1 = allow live NEAR AI Clo
 ONECLICK_BASE_URL=https://1click.chaindefuser.com/v0
 ONECLICK_JWT=...                                    # partners.near-intents.org
 ONECLICK_MODE=dry                                   # dry | live (live only on mainnet)
+SIM_SINK_ACCOUNT_ID=                                # optional, TESTNET ONLY: holding account for simulated cross-chain claims
+SIM_SINK_PRIVATE_KEY=                               # optional, TESTNET ONLY; never commit
 DATA_ENCRYPTION_KEY=base64-32-bytes
 SESSION_SECRET=...
 APP_URL=http://localhost:3000

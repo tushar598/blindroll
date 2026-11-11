@@ -12,6 +12,8 @@ export interface ServerConfig {
   appUrl: string;
   relayerAccountId: string;
   oneclickBaseUrl: string;
+  /** Testnet only: the account that stands in for a 1Click deposit address. Null when not configured. */
+  simSinkAccountId: string | null;
 }
 
 let cached: ServerConfig | undefined;
@@ -30,9 +32,10 @@ export function serverConfig(): ServerConfig {
     appUrl: env.APP_URL!,
     relayerAccountId: env.RELAYER_ACCOUNT_ID!,
     oneclickBaseUrl: env.ONECLICK_BASE_URL!,
+    simSinkAccountId: env.SIM_SINK_ACCOUNT_ID?.trim() || null,
   };
   // Refuses, for example, the mock USDC on mainnet.
-  assertNetworkConfig({ network: cfg.network, contractId: cfg.contractId, tokenId: cfg.tokenId });
+  assertNetworkConfig({ network: cfg.network, contractId: cfg.contractId, tokenId: cfg.tokenId, simSinkId: cfg.simSinkAccountId ?? undefined });
   cached = cfg;
   return cfg;
 }

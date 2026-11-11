@@ -1,6 +1,6 @@
 # HANDOFF — read this first in every new session
 
-Last updated: 2026-11-11 (after the claim page and claim flow; waiting for the recipient browser test and a simulation decision). Update this file at the end of every work session.
+Last updated: 2026-11-11 (simulated 1Click delivery built; waiting for the owner to create the sim-sink account and for the recipient browser test). Update this file at the end of every work session.
 
 ## 1. Project in one paragraph
 Blindroll is claim-based payroll on NEAR for the NEAR Hackathon (tracks: Real-World Money + Privacy & Private AI). An approver uploads a messy payroll CSV; NEAR AI Cloud (TEE) proposes a column mapping; deterministic code normalizes and runs rules; an attested report is built; approvers sign and fund USDC into a contract that stores only a Merkle root and the report hash; each recipient verifies their wallet, sees only their own row, and claims in their chosen asset/chain (NEAR USDC or 1Click), gas-free. Full specs: `docs/` (start at `docs/README.md`). Rules: `AGENTS.md`.
@@ -21,12 +21,13 @@ Deadline: hackathon ends Nov 14, 2026 (confirm the exact time on https://nearhac
 
 Tests at last check (2026-11-11): `pnpm -r test` 149 (core) + 28 (web) passed; `pnpm -r typecheck`, `pnpm --filter web lint` and `pnpm --filter web build` clean; `cargo test` 97 + 5 unit, 2 sandbox passed (last run inside the deploy script; contracts unchanged since).
 
-Nothing in the product is simulated.
+Simulated (labelled): cross-chain delivery on testnet and the delivery failure that triggers a refund. Everything else is real. See the README table.
 
 ### Claim flow (2026-11-11)
 - Built: `/claim/<run_key>` → connect (any EIP-6963 EVM wallet, or Meteor for NEAR) → sign the view message → own row only → options board → enter a NEAR account → EVM: sign the claim message, the relayer submits `claim_evm` and pays gas; NEAR: `claim_near` sent from the recipient's wallet → status from the contract (`is_claimed`).
 - Options board: "USDC on NEAR" is real. "USDC on Base / Arbitrum" show **real 1Click dry quotes** (mainnet prices, labelled estimated) and **cannot be chosen**.
-- **Open SIMULATION REQUEST (owner has not answered):** simulate 1Click delivery on testnet (`sim-sink` account, `simulated: true` everywhere). Do not build it without "approved".
+- **SIMULATION approved by the owner (2026-11-11) and built:** 1Click delivery on testnet. Condition met in code: "refunded (simulated)" is a real `ft_transfer` from the sim sink back to the contract, and `reopen_claim` is only offered after that transaction succeeded. Details: docs/06 "Testnet behaviour". It is **inactive until `SIM_SINK_ACCOUNT_ID` and `SIM_SINK_PRIVATE_KEY` are set** (`pnpm env:check` shows whether they are).
+- **The sim-sink account does not exist yet.** The owner asked to be asked first; a HELP NEEDED with the command was sent in chat (the owner runs it so the key never passes through an agent).
 - **Verified:** claim services with real signatures and stubs for RPC/relayer (28 web tests); public claim endpoints over HTTP against the built app; `pnpm relayer:check` sent a real testnet transaction from `relayer.blindroll-dev.testnet` (`2Swt3527ecKYdd859HQZGCscWUkAaQCNtqLYgTjbwfVL`).
 - **NOT yet verified (needs the owner's wallets):** a real claim in the browser (MetaMask view + claim signature through the relayer to the contract; Meteor NEAR view + `claim_near`).
 - First browser test passed earlier the same day: run `run-Ngs7_871eapi` is Active, 2 of 2 approvals, 7,000.50 test USDC funded (its recipients are sample addresses nobody controls).
@@ -84,6 +85,7 @@ Still to apply:
 | Contract | `blindroll.blindroll-dev.testnet` (deployed) |
 | Mock USDC | `usdc.blindroll-dev.testnet` (deployed) |
 | Relayer | `relayer.blindroll-dev.testnet` |
+| Sim sink (testnet-only simulation) | `sim-sink.blindroll-dev.testnet` — **not created yet**; key goes in `SIM_SINK_PRIVATE_KEY`, account in `SIM_SINK_ACCOUNT_ID`. Must never be set on mainnet |
 | Approver #1 | `tushar1962005.testnet` (Meteor web wallet) |
 | Approver #2 | `blindroll-dev.testnet` |
 | Tooling | cargo-near 0.23, NEAR CLI 0.31.1 (in `~/.cargo/bin`), Node 24, pnpm, Rust 1.96 (no pin needed) |
@@ -93,11 +95,11 @@ Still to apply:
 Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see the root `package.json` scripts).
 
 ## 5. Next steps, in order
-1. Owner runs the recipient test (new small run with a MetaMask address and a NEAR testnet account; steps were sent in chat) and answers the SIMULATION REQUEST.
-2. If approved: simulated 1Click delivery on testnet + refund → `reopen_claim` path (approver button). If not: leave cross-chain options unselectable and say so in the README.
+1. Owner: create `sim-sink.blindroll-dev.testnet`, put its account and key in `.env.local`, run `pnpm env:check`; then run the recipient test (USDC on NEAR, then a simulated "USDC on Base" claim → refund → reopen → claim again).
+2. Fix whatever the browser tests show.
 3. Report verify page (`/runs/<run_key>/report`), reconciled export.
 4. Nov 13: deploy the app. SQLite on a serverless host does not persist: pick a host with a disk, or decide on another database first.
-5. Nov 14: README (do X → see Y, real vs simulated, known limitations incl. attestation, "proving the refund", NEAR claims pay their own gas), 2-minute video, submit.
+5. Nov 14: README (do X → see Y, known limitations incl. attestation, "proving the refund", NEAR claims pay their own gas), 2-minute video, submit.
 
 ## 6. Open risks / known gaps
 - **CLI steps are temporary.** Approver #2 approves and funds via NEAR CLI commands for now (owner-approved for local testing). Before deployment, replace them with browser-wallet steps: see `docs/12-build-plan.md` → "Before the deployed version: replace CLI steps with browser wallets". DAO/multisig approvals (SputnikDAO, Trezu) are a stretch goal listed there under "Later".
