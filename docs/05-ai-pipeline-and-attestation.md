@@ -159,3 +159,13 @@ Fields added while building (`packages/core/src/report/`, 2026-11-11):
 ## Verify page
 
 `/runs/<run_key>/report` recomputes `report_sha256` in the browser, reads `report_hash` from the contract via RPC, compares them, and re-verifies the AI signature. Show each check as ✓ / ✗.
+
+As built (`verifyPublishedReport` in `packages/core/src/report/verify.ts`, page `apps/web/app/components/report-screen.tsx`):
+
+- The page is public, like the report. The checks run when the page opens and again on **Verify again**.
+- The browser fetches the report bytes, checks they are canonical (RFC 8785) and hashes them.
+- The browser reads `get_run` directly from a **public NEAR RPC** (FastNEAR, then near.org as a fallback), not through our server, and compares `report_hash`, `merkle_root`, `total_amount` and `recipient_count`.
+- AI signature: the signed text is rebuilt from the report (`<model>:<request_sha256>:<response_sha256>`), the EIP-191 signer is recovered and compared with `signing_address`. A run mapped by hand shows "not applicable".
+- The TEE attestation is shown as **not verified** (the MVP fallback above); the page says so instead of showing a ✓.
+- Signed-in approvers also get the reconciled export (CSV/JSON) on this page.
+- `pnpm report:verify <run_key>` runs the same checks from the command line.

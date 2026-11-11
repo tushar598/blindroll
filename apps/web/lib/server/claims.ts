@@ -80,6 +80,8 @@ export function publicRunInfo(deps: ClaimDeps, runKey: string) {
     network: run.network,
     contractId: run.contractId,
     tokenId: deps.config.tokenId,
+    /** The create_run transaction that stored the report hash (public on-chain data). */
+    createTx: run.createTx,
   };
 }
 
@@ -526,4 +528,83 @@ export async function recordReopen(deps: ClaimDeps, input: { accountId: string; 
   deps.db.update(runRows).set({ status: "reopened" }).where(eq(runRows.id, row.id)).run();
   audit(deps.db, input.accountId, "claim_reopened", run.id, { claim_id: claim.id, tx: txHash });
   return { payoutStatus: "reopened", reopenTx: txHash, simulated: true };
+}
+
+export interface ExportRow {
+  /** Position of the recipient's leaf in the Merkle tree (leaves are ordered by leaf hash, not by file order). */
+  leaf_index: number;
+  name: string;
+  role: string;
+  memo: string;
+  chain: string;
+  address: string;
+  amount: string;
+  amount_base_units: string;
+  /** claimed | unclaimed | refunded | reopened (docs/02 Flow C). "claimed" is read from the contract. */
+  status: "claimed" | "unclaimed" | "refunded" | "reopened";
+  payout_rail: string;
+  destination: string;
+  destination_asset: string;
+  claim_tx: string;
+  /** 1Click deposit address; on testnet the sim sink (see `simulated`). */
+  deposit_address: string;
+  final_status: string;
+  refund_tx: string;
+  reopen_tx: string;
+  simulated: boolean;
+}
+
+const EXPORT_COLUMNS: Array<keyof ExportRow> = [
+  "leaf_index", "name", "role", "memo", "chain", "address", "amount", "amount_base_units", "status", "payout_rail", "destination",
+  "destination_asset", "claim_tx", "deposit_address", "final_status", "refund_tx", "reopen_tx", "simulated",
+];
+
+/**
+ * Reconciled export (docs/02 Flow C): one row per recipient. Whether a row is claimed comes from the
+ * contract (`is_claimed`), not from our database; rail, destination and transactions come from the
+ * claim records. Approvers only: it holds names, addresses and amounts.
+ */
+export async function exportRun(deps: ClaimDeps, input: { accountId: string; runKey: string }) {
+  const run = loadRunForApprover(deps.db, input.runKey, input.accountId);
+  if (!run.merkleRoot) throw new HttpError(409, "not_finalized", "The run has no final table yet; finalize it first");
+  const rows = deps.db.select().from(runRows).where(eq(runRows.runId, run.id)).orderBy(runRows.rowIndex).all();
+  // The run exists on-chain once it left "finalized"; before that nothing can be claimed.
+  const onChain = !["needs_mapping", "review", "finalized"].includes(run.status);
+  const out: ExportRow[] = [];
+  for (const row of rows) {
+    const payload = decryptJson<{ name?: string; memo?: string; role?: string }>(row.encPayload);
+    const claimed = onChain ? await isClaimedOnChain(deps, run, row) : false;
+    const c = latestClaim(deps.db, row);
+    const confirmed = c && c.status === "confirmed" ? c : null;
+    const refunded = confirmed?.payoutStatus === "refunded_simulated" || confirmed?.payoutStatus === "refunding";
+    const status: ExportRow["status"] = claimed ? (refunded ? "refunded" : "claimed") : confirmed?.payoutStatus === "reopened" ? "reopened" : "unclaimed";
+    const oneclick = confirmed?.payoutKind === "oneclick";
+    out.push({
+      leaf_index: row.rowIndex,
+      name: payload.name ?? "", role: payload.role ?? "", memo: payload.memo ?? "",
+      chain: row.chain, address: row.address,
+      amount: formatUsdc(BigInt(row.amount)), amount_base_units: row.amount,
+      status,
+      payout_rail: confirmed ? (oneclick ? "oneclick" : "near-usdc") : "",
+      destination: confirmed ? (oneclick ? (confirmed.destinationAddress ?? "") : confirmed.payoutTarget) : "",
+      destination_asset: confirmed ? (oneclick ? (confirmed.destinationAsset ?? "") : "USDC on NEAR") : "",
+      claim_tx: confirmed?.claimTx ?? "",
+      deposit_address: oneclick ? confirmed.payoutTarget : "",
+      final_status: confirmed ? (confirmed.payoutStatus ?? (claimed ? "delivered" : "")) : claimed ? "claimed outside this app" : "",
+      refund_tx: confirmed?.refundTx ?? "",
+      reopen_tx: confirmed?.reopenTx ?? "",
+      simulated: confirmed?.simulated === true,
+    });
+  }
+  return { runKey: run.runKey, runName: run.name, network: run.network, contractId: run.contractId, exportedAt: nowIso(), rows: out };
+}
+
+/** RFC 4180 CSV. Text that a spreadsheet would run as a formula gets a leading apostrophe. */
+export function exportToCsv(rows: ExportRow[]): string {
+  const cell = (v: string | number | boolean) => {
+    let s = String(v);
+    if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+  };
+  return [EXPORT_COLUMNS.join(","), ...rows.map((r) => EXPORT_COLUMNS.map((k) => cell(r[k])).join(","))].join("\r\n") + "\r\n";
 }

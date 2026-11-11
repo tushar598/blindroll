@@ -168,10 +168,10 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
                 <dd className="mt-0.5">{new Date(run.finalized.claimDeadlineMs).toLocaleString()}</dd>
               </div>
             </dl>
-            <a className="mt-4 inline-block font-medium text-accent underline" href={`/api/runs/${run.runKey}/report`} target="_blank" rel="noreferrer">
-              Open the report JSON
+            <a className="mt-4 inline-block font-medium text-accent underline" href={`/runs/${run.runKey}/report`}>
+              Verify the report and export
             </a>
-            <span className="ml-2 text-muted">(public: it holds no names, addresses or per-person amounts)</span>
+            <span className="ml-2 text-muted">(the report is public: it holds no names, addresses or per-person amounts)</span>
           </div>
         )
       )}

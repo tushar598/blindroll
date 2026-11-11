@@ -35,7 +35,7 @@ Sign-in details as built: the nonce is 32 random bytes (base64); the signed mess
 | POST | `/api/runs/:runKey/sync` | Reads `get_run` from the contract and updates the DB; refuses (`409 chain_mismatch`) if the on-chain run has another Merkle root or report hash |
 
 Run `status`: `needs_mapping` → `review` → `finalized` → then the on-chain status in lowercase (`draft`, `approved`, `active`, `closed`, `cancelled`). `finalize` body: `{claimDays}` (1–365, default 14).
-| GET | `/api/runs/:runKey/export?format=csv|json` | Reconciled export |
+| GET | `/api/runs/:runKey/export?format=csv|json` | Reconciled export (approvers only; CSV by default). One row per recipient: `leaf_index, name, role, memo, chain, address, amount, amount_base_units, status, payout_rail, destination, destination_asset, claim_tx, deposit_address, final_status, refund_tx, reopen_tx, simulated`. `status` is `claimed | unclaimed | refunded | reopened`; whether a row is claimed is read from the contract (`is_claimed`). `leaf_index` is the position in the Merkle tree (leaves are ordered by leaf hash), not the row number in the uploaded file. Text cells that a spreadsheet would treat as a formula get a leading apostrophe |
 
 ### Payouts (approver session)
 | Method | Path | Notes |
@@ -53,7 +53,7 @@ Run `status`: `needs_mapping` → `review` → `finalized` → then the on-chain
 ### Claim (recipient)
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/claim/:runKey` | Public run info: org name, run name, deadline, status |
+| GET | `/api/claim/:runKey` | Public run info: org name, run name, deadline, status, network, contract, and `createTx` (the `create_run` transaction that stored the report hash) |
 | GET | `/api/claim/:runKey/challenge` | `{nonce, issued, recipient}` for the view message |
 | POST | `/api/claim/:runKey/view` | `{chain, address, nonce, issued, signature, publicKey?}` (the server rebuilds the message) → `{row, token}`: own row (amount, name, memo, claim status) + view token, or `404 not_listed`. The token is sent as `Authorization: Bearer …` to the endpoints below |
 | GET | `/api/claim/:runKey/options` | Payout options with estimated amounts (1Click dry quotes, cached 30 s) |

@@ -5,7 +5,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type OneClickFetch, buildViewMessage, sha256 } from "@blindroll/core";
-import { type ClaimDeps, claimStatus, getReopenCall, issueViewChallenge, listPayouts, payoutOptions, prepareClaim, publicRunInfo, recordReopen, refundSimulatedPayout, submitClaim, verifyView } from "../lib/server/claims";
+import { type ClaimDeps, claimStatus, exportRun, exportToCsv, getReopenCall, issueViewChallenge, listPayouts, payoutOptions, prepareClaim, publicRunInfo, recordReopen, refundSimulatedPayout, submitClaim, verifyView } from "../lib/server/claims";
 import type { ServerConfig } from "../lib/server/config";
 import { openDb, runs } from "../lib/server/db";
 import { base58Encode, parseRelayerKey, serializeTransaction, signTransaction } from "../lib/server/near-tx";
@@ -102,7 +102,7 @@ describe("public run info and the view signature", () => {
   it("shows no amounts or recipients publicly, and hides runs that are not on-chain", async () => {
     const { deps, runKey, db } = await setup();
     const info = publicRunInfo(deps, runKey);
-    expect(Object.keys(info).sort()).toEqual(["claimDeadlineMs", "contractId", "network", "orgName", "runKey", "runName", "status", "tokenId"]);
+    expect(Object.keys(info).sort()).toEqual(["claimDeadlineMs", "contractId", "createTx", "network", "orgName", "runKey", "runName", "status", "tokenId"]);
     expect(JSON.stringify(info)).not.toContain(EVM_ADDR);
     db.update(runs).set({ status: "finalized" }).run();
     expect(() => publicRunInfo(deps, runKey)).toThrow("does not exist");
@@ -399,5 +399,53 @@ describe("simulated cross-chain claim on testnet (sim sink) with a real refund b
   it("the payout cannot be sent to the sim sink through the real rail", async () => {
     const { deps, runKey } = await setup({ sim: true });
     await expect(prepareClaim(deps, scope(runKey), { optionId: "near-usdc", receiver: SINK })).rejects.toMatchObject({ code: "bad_receiver" });
+  });
+});
+
+describe("reconciled export", () => {
+  it("lists every recipient with the status read from the contract, through refund and reopen", async () => {
+    const ctx = await setup({ sim: true });
+    const { deps, runKey, chain } = ctx;
+    const who = { accountId: APPROVER, runKey };
+    const s = { runKey, chain: "evm", address: EVM_ADDR };
+    let x = await exportRun(deps, who);
+    const mine = (e: typeof x) => e.rows.find((r) => r.address === EVM_ADDR)!;
+    const sorted = (e: typeof x) => [...e.rows].sort((a, b) => a.address.localeCompare(b.address));
+    expect(sorted(x).map((r) => [r.address, r.amount, r.status, r.payout_rail])).toEqual([[EVM_ADDR, "1,000.00", "unclaimed", ""], [NEAR_ACCT, "250.50", "unclaimed", ""]]);
+    expect(x.rows.map((r) => r.leaf_index)).toEqual([0, 1]);
+    expect(mine(x)).toMatchObject({ name: "Eve", memo: "October", amount_base_units: "1000000000", simulated: false });
+
+    const p = await prepareClaim(deps, s, { optionId: "oneclick:base:USDC" });
+    if (p.kind !== "evm") throw new Error("expected an EVM claim");
+    await submitClaim(deps, s, { claimId: p.claimId, signature: await evm.signMessage({ message: p.message }) });
+    x = await exportRun(deps, who);
+    expect(mine(x)).toMatchObject({
+      status: "claimed", payout_rail: "oneclick", destination: EVM_ADDR, deposit_address: SINK, final_status: "delivered_simulated",
+      claim_tx: "8".repeat(44), simulated: true,
+    });
+
+    await refundSimulatedPayout(deps, { ...who, claimId: p.claimId });
+    expect(mine(await exportRun(deps, who))).toMatchObject({ status: "refunded", refund_tx: "5".repeat(44), final_status: "refunded_simulated" });
+    chain.claimed.clear(); // the approver's reopen_claim
+    await recordReopen(deps, { ...who, claimId: p.claimId, txHash: "7".repeat(44) });
+    expect(mine(await exportRun(deps, who))).toMatchObject({ status: "reopened", reopen_tx: "7".repeat(44) });
+
+    const p2 = await prepareClaim(deps, s, { optionId: "near-usdc", receiver: "eve.testnet" });
+    if (p2.kind !== "evm") throw new Error("expected an EVM claim");
+    await submitClaim(deps, s, { claimId: p2.claimId, signature: await evm.signMessage({ message: p2.message }) });
+    expect(mine(await exportRun(deps, who))).toMatchObject({ status: "claimed", payout_rail: "near-usdc", destination: "eve.testnet", deposit_address: "", simulated: false });
+    expect((await exportRun(deps, who)).rows.find((r) => r.address === NEAR_ACCT)).toMatchObject({ status: "unclaimed" });
+  });
+
+  it("is for approvers only and writes safe CSV", async () => {
+    const { deps, runKey } = await setup();
+    await expect(exportRun(deps, { accountId: "stranger.testnet", runKey })).rejects.toMatchObject({ code: "forbidden" });
+    const { rows } = await exportRun(deps, { accountId: APPROVER, runKey });
+    const csvText = exportToCsv([{ ...rows.find((r) => r.address === EVM_ADDR)!, name: '=HYPERLINK("x")', memo: "a, b" }]);
+    const lines = csvText.split("\r\n");
+    expect(lines[0]).toBe("leaf_index,name,role,memo,chain,address,amount,amount_base_units,status,payout_rail,destination,destination_asset,claim_tx,deposit_address,final_status,refund_tx,reopen_tx,simulated");
+    expect(lines[1]).toContain(`"'=HYPERLINK(""x"")"`);
+    expect(lines[1]).toContain('"a, b"');
+    expect(lines[1]).toContain('"1,000.00"');
   });
 });

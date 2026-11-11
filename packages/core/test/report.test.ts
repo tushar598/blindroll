@@ -17,6 +17,7 @@ import {
   reviewRun,
   verifyAiSignature,
   verifyProof,
+  verifyPublishedReport,
 } from "../src/index.ts";
 import { hexToBytes } from "../src/hash.ts";
 
@@ -164,6 +165,28 @@ describe("buildReport", () => {
     expect(reportSha256(buildReport({ ...base, ai, threshold: 1 }))).not.toBe(hash);
     expect(reportSha256(buildReport({ ...base, ai: null }))).not.toBe(hash);
     expect(canonicalJson({ b: 1, a: [2, { d: 1, c: 2 }] })).toBe('{"a":[2,{"c":2,"d":1}],"b":1}');
+  });
+
+  it("verifyPublishedReport: recomputes the hash and re-verifies the AI signature from the report alone", async () => {
+    const report = buildReport({ ...base, ai: await evidence() });
+    const text = reportCanonicalJson(report);
+    const v = await verifyPublishedReport(text);
+    expect(v.sha256).toBe(reportSha256(report));
+    expect(v.canonical).toBe(true);
+    expect(v.report?.run_key).toBe(RUN_KEY);
+    expect(v.ai).toMatchObject({ state: "verified" });
+    expect(v.attestationVerified).toBe(false); // MVP fallback: the Intel quote is not verified
+
+    // Any change to the bytes changes the hash; a changed AI hash breaks the signature check.
+    const tampered = await verifyPublishedReport(text.replace(report.ai!.response_sha256, "0".repeat(64)));
+    expect(tampered.sha256).not.toBe(v.sha256);
+    expect(tampered.ai).toMatchObject({ state: "failed" });
+    // Re-ordered or spaced JSON is flagged as not canonical.
+    expect((await verifyPublishedReport(JSON.stringify(report, null, 1))).canonical).toBe(false);
+
+    expect((await verifyPublishedReport(reportCanonicalJson(buildReport({ ...base, ai: null })))).ai).toEqual({ state: "no_ai" });
+    expect((await verifyPublishedReport("not json")).report).toBeNull();
+    expect((await verifyPublishedReport('{"schema":"other"}')).problem).toContain("blindroll.report.v1");
   });
 
   it("notes a defaulted currency and a manual mapping", () => {
