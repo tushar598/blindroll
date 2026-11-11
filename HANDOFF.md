@@ -1,6 +1,6 @@
 # HANDOFF — read this first in every new session
 
-Last updated: 2026-11-11 (after the report builder, finalize, approver backend and approver UI). Update this file at the end of every work session.
+Last updated: 2026-11-11 (after the claim page and claim flow; waiting for the recipient browser test and a simulation decision). Update this file at the end of every work session.
 
 ## 1. Project in one paragraph
 Blindroll is claim-based payroll on NEAR for the NEAR Hackathon (tracks: Real-World Money + Privacy & Private AI). An approver uploads a messy payroll CSV; NEAR AI Cloud (TEE) proposes a column mapping; deterministic code normalizes and runs rules; an attested report is built; approvers sign and fund USDC into a contract that stores only a Merkle root and the report hash; each recipient verifies their wallet, sees only their own row, and claims in their chosen asset/chain (NEAR USDC or 1Click), gas-free. Full specs: `docs/` (start at `docs/README.md`). Rules: `AGENTS.md`.
@@ -16,11 +16,21 @@ Deadline: hackathon ends Nov 14, 2026 (confirm the exact time on https://nearhac
 | `c66096c` | Root `.env.local` loading + startup check (`@blindroll/core/env`, `pnpm env:check`); model `z-ai/glm-5.3-flash`; HANDOFF.md |
 | `483000a` | NEAR AI Cloud fixture, mapping client and signature verifier (`packages/core/src/ai/`) |
 | `9a0d833` | Report builder, review and finalize (`packages/core/src/report/`) |
-| (latest) | Approver backend (SQLite, NEP-413 sign-in, run API) and approver UI in `apps/web` |
+| `73c1aea`, `7800b53`, `4936950` | Approver backend + UI; Meteor connect fix; on-chain status auto-refresh |
+| (latest) | Claim page and claim flow; 1Click client + fixtures; relayer |
 
-Tests at last check (2026-11-11): `pnpm -r test` 143 (core) + 14 (web) passed; `pnpm -r typecheck`, `pnpm --filter web lint` and `pnpm --filter web build` clean; `cargo test` 97 + 5 unit, 2 sandbox passed (last run inside the deploy script; contracts unchanged since).
+Tests at last check (2026-11-11): `pnpm -r test` 149 (core) + 28 (web) passed; `pnpm -r typecheck`, `pnpm --filter web lint` and `pnpm --filter web build` clean; `cargo test` 97 + 5 unit, 2 sandbox passed (last run inside the deploy script; contracts unchanged since).
 
 Nothing in the product is simulated.
+
+### Claim flow (2026-11-11)
+- Built: `/claim/<run_key>` → connect (any EIP-6963 EVM wallet, or Meteor for NEAR) → sign the view message → own row only → options board → enter a NEAR account → EVM: sign the claim message, the relayer submits `claim_evm` and pays gas; NEAR: `claim_near` sent from the recipient's wallet → status from the contract (`is_claimed`).
+- Options board: "USDC on NEAR" is real. "USDC on Base / Arbitrum" show **real 1Click dry quotes** (mainnet prices, labelled estimated) and **cannot be chosen**.
+- **Open SIMULATION REQUEST (owner has not answered):** simulate 1Click delivery on testnet (`sim-sink` account, `simulated: true` everywhere). Do not build it without "approved".
+- **Verified:** claim services with real signatures and stubs for RPC/relayer (28 web tests); public claim endpoints over HTTP against the built app; `pnpm relayer:check` sent a real testnet transaction from `relayer.blindroll-dev.testnet` (`2Swt3527ecKYdd859HQZGCscWUkAaQCNtqLYgTjbwfVL`).
+- **NOT yet verified (needs the owner's wallets):** a real claim in the browser (MetaMask view + claim signature through the relayer to the contract; Meteor NEAR view + `claim_near`).
+- First browser test passed earlier the same day: run `run-Ngs7_871eapi` is Active, 2 of 2 approvals, 7,000.50 test USDC funded (its recipients are sample addresses nobody controls).
+- Not built: 1Click execution path (real quote, deposit submit, status polling, refund → reopen), gas-free NEAR claims (NEP-366), report verify page, export.
 
 ### Approver app (2026-11-11)
 - Flow built: sign in (Meteor, NEP-413) → upload CSV → column mapping (cache → live AI when `NEAR_AI_LIVE=1` → manual form) → review table (edit, remove with reason, accept warnings with reason) → finalize → `create_run` / `approve_run` / fund, each from the wallet or with a copyable NEAR CLI command → "Refresh on-chain status".
@@ -83,17 +93,18 @@ Still to apply:
 Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see the root `package.json` scripts).
 
 ## 5. Next steps, in order
-1. Owner tests the approver flow in the browser (see "Approver app" above); fix whatever the wallet shows.
-2. Rest of the Nov 12 plan (`docs/12`): report verify page (`/runs/<run_key>/report`: recompute the hash, compare with the contract, re-verify the AI signature), claim page (EVM view + options board with 1Click dry quotes).
-3. Nov 13: claim submit via relayer (EVM + NEAR), payout status, refund → reopen path, export, deploy the app. SQLite on a serverless host does not persist: pick a host with a disk, or decide on another database first.
-4. Nov 14: README (do X → see Y, real vs simulated, known limitations incl. attestation and "proving the refund"), 2-minute video, submit.
+1. Owner runs the recipient test (new small run with a MetaMask address and a NEAR testnet account; steps were sent in chat) and answers the SIMULATION REQUEST.
+2. If approved: simulated 1Click delivery on testnet + refund → `reopen_claim` path (approver button). If not: leave cross-chain options unselectable and say so in the README.
+3. Report verify page (`/runs/<run_key>/report`), reconciled export.
+4. Nov 13: deploy the app. SQLite on a serverless host does not persist: pick a host with a disk, or decide on another database first.
+5. Nov 14: README (do X → see Y, real vs simulated, known limitations incl. attestation, "proving the refund", NEAR claims pay their own gas), 2-minute video, submit.
 
 ## 6. Open risks / known gaps
 - **CLI steps are temporary.** Approver #2 approves and funds via NEAR CLI commands for now (owner-approved for local testing). Before deployment, replace them with browser-wallet steps: see `docs/12-build-plan.md` → "Before the deployed version: replace CLI steps with browser wallets". DAO/multisig approvals (SputnikDAO, Trezu) are a stretch goal listed there under "Later".
 - AI attestation: only the signature and the nonce/signer binding fields are checked; no Intel DCAP quote verification (see docs/05).
 - `reopen_claim` trusts that 1Click really refunded (see docs/04 "Open issue: proving the refund").
 - 1Click has no testnet: on testnet, cross-chain delivery will need a SIMULATION REQUEST to the owner before building it (dry quotes are real).
-- 1Click quote response schema not yet confirmed with a real call.
+- 1Click **dry** quote schema confirmed; the non-dry response (`depositAddress`, deadline fields) is still unconfirmed and needs an existing mainnet `refundTo`.
 - Native mainnet USDC contract ID and its `storage_deposit` behaviour not yet confirmed.
 - Wallet support for signing NEP-366 delegate actions not yet checked (fallback: direct `claim_near` call).
 - Confidential Intents: optional, timeboxed to one day, not started.

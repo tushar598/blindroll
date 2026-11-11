@@ -172,7 +172,7 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
           <p className="mt-2 text-sm leading-6">
             Fully funded. Claims are open until {new Date(chain!.claim_deadline_ms).toLocaleString()}. Share the claim link:{" "}
             <span className="num break-all">{typeof window === "undefined" ? "" : window.location.origin}/claim/{run.runKey}</span>
-            <span className="block text-xs text-muted">The claim page is the next thing being built; the link will not open yet.</span>
+            <span className="block text-xs text-muted">The link shows nothing by itself: each recipient must sign with their own wallet to see their row.</span>
           </p>
         )}
       </Step>

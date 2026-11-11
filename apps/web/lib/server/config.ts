@@ -10,6 +10,8 @@ export interface ServerConfig {
   aiModel: string;
   aiLive: boolean;
   appUrl: string;
+  relayerAccountId: string;
+  oneclickBaseUrl: string;
 }
 
 let cached: ServerConfig | undefined;
@@ -26,6 +28,8 @@ export function serverConfig(): ServerConfig {
     aiModel: env.NEAR_AI_MODEL!,
     aiLive: env.NEAR_AI_LIVE === "1",
     appUrl: env.APP_URL!,
+    relayerAccountId: env.RELAYER_ACCOUNT_ID!,
+    oneclickBaseUrl: env.ONECLICK_BASE_URL!,
   };
   // Refuses, for example, the mock USDC on mainnet.
   assertNetworkConfig({ network: cfg.network, contractId: cfg.contractId, tokenId: cfg.tokenId });
@@ -48,3 +52,16 @@ export const DEMO_ORG = {
 
 export const MAX_RUN_ROWS = 500;
 export const DEFAULT_CLAIM_DAYS = 14;
+
+/**
+ * 1Click only knows mainnet accounts: a quote with a `refundTo` that does not exist there is
+ * rejected (HTTP 400). On mainnet `refundTo` is the Blindroll contract. On testnet, DRY quotes
+ * (estimates only, nothing moves) use this existing mainnet account as a stand-in.
+ */
+export const ONECLICK_DRY_REFUND_STAND_IN = "near";
+
+/** Cross-chain destinations offered on the options board: [1Click blockchain, symbol, label]. */
+export const ONECLICK_DESTINATIONS = [
+  ["base", "USDC", "USDC on Base"],
+  ["arb", "USDC", "USDC on Arbitrum"],
+] as const;

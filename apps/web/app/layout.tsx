@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
 import { SessionProvider } from "./components/session";
 import { SiteHeader } from "./components/site-header";
@@ -17,7 +18,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full">
         <SessionProvider>
-          <SiteHeader />
+          {/* The header reads the current path, which is only known at request time on dynamic routes. */}
+          <Suspense fallback={<div className="h-[57px] border-b border-line bg-card" />}>
+            <SiteHeader />
+          </Suspense>
           <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-8">{children}</main>
         </SessionProvider>
       </body>

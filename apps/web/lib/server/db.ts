@@ -111,6 +111,30 @@ export const aiCalls = sqliteTable("ai_calls", {
   createdAt: text("created_at").notNull(),
 });
 
+/** One row per prepared claim. The signed message and payout target are fixed at prepare time. */
+export const claims = sqliteTable("claims", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  runId: integer("run_id").notNull(),
+  rowId: integer("row_id").notNull(),
+  /** near-usdc | oneclick:<chain>:<symbol> */
+  optionId: text("option_id").notNull(),
+  /** near_ft | oneclick */
+  payoutKind: text("payout_kind").notNull(),
+  payoutTarget: text("payout_target").notNull(),
+  destinationAsset: text("destination_asset").notNull(),
+  destinationAddress: text("destination_address").notNull(),
+  /** EVM claims only: the signed expiry and the exact message text. */
+  expiresAtMs: integer("expires_at_ms"),
+  message: text("message"),
+  claimTx: text("claim_tx"),
+  /** prepared | submitted | confirmed | failed */
+  status: text("status").notNull(),
+  error: text("error"),
+  simulated: integer("simulated", { mode: "boolean" }).notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const auditLog = sqliteTable("audit_log", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   actor: text("actor").notNull(),
@@ -146,6 +170,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS overrides_unique ON overrides (run_id, rule_id
 CREATE TABLE IF NOT EXISTS ai_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT, csv_sha256 TEXT NOT NULL UNIQUE, model TEXT NOT NULL, chat_id TEXT NOT NULL, request_sha256 TEXT NOT NULL,
   response_sha256 TEXT NOT NULL, enc_evidence TEXT NOT NULL, attestation_json TEXT NOT NULL, verified INTEGER NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS claims (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, row_id INTEGER NOT NULL, option_id TEXT NOT NULL, payout_kind TEXT NOT NULL,
+  payout_target TEXT NOT NULL, destination_asset TEXT NOT NULL, destination_address TEXT NOT NULL, expires_at_ms INTEGER, message TEXT,
+  claim_tx TEXT, status TEXT NOT NULL, error TEXT, simulated INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS claims_row ON claims (row_id);
 CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL, run_id INTEGER, data_json TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS nonces (nonce TEXT PRIMARY KEY, purpose TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL);
 `;

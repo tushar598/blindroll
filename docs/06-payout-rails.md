@@ -39,7 +39,7 @@ export interface PayoutRail {
 
 ## Rail 1 — `near-usdc` (MVP, real on testnet)
 
-- For NEAR recipients only: `payoutTarget` = their NEAR account (or another NEAR account they enter, which is in the signed message).
+- For NEAR and EVM recipients: `payoutTarget` = a NEAR account they enter (NEAR recipients default to their own account). It is in the signed message (EVM) or in the call they send themselves (NEAR). The backend refuses an account that does not exist, the contract account and the token account.
 - Delivered as soon as the claim transaction succeeds.
 - Testnet: mock USDC (6 decimals) deployed by us. Mainnet: native USDC. Confirm the token contract ID from Circle's or NEAR's docs before use (see [14](14-resources.md)).
 
@@ -84,13 +84,22 @@ Asset ID formats: `nep141:<contract>` for NEAR tokens; `nep141:<chain>-<address>
 - Confirm the exact response schema with a real call and update `types.ts`; the docs page doesn't show a response example.
 - After the claim tx: `POST /v0/deposit/submit` with the tx hash, then poll `/v0/status` until a terminal status.
 
+### Confirmed with real calls (2026-11-11)
+
+Fixtures: `packages/core/test-vectors/oneclick/` (`tokens.json`, two dry quotes), recorded by `pnpm oneclick:record`. Client: `packages/core/src/rails/oneclick.ts`.
+- Auth header that works: `Authorization: Bearer <JWT>`. A successful quote returns **HTTP 201**.
+- Quote response: `{ quote: { amountIn, amountOut, minAmountOut, amountInFormatted, amountOutFormatted, amountInUsd, amountOutUsd, minAmountIn, timeEstimate (seconds), refundFee, withdrawFee }, quoteRequest: {…echo…}, signature, timestamp, correlationId }`. Amounts are base-unit strings. A dry quote has **no** `depositAddress`.
+- `/v0/tokens` entries: `assetId`, `blockchain`, `symbol`, `decimals`, `price`, `priceUpdatedAt`, `contractAddress`, `coingeckoId`. Chain names are short (`near`, `base`, `arb`, `eth`, `sol`, `tron`, …).
+- **`refundTo` must be an account that exists on mainnet.** Otherwise the API answers HTTP 400 `{"message":"Internal server error"}`. So a testnet contract ID cannot be used: on testnet, dry quotes send `refundTo: "near"` as a stand-in (`ONECLICK_DRY_REFUND_STAND_IN`; nothing moves in a dry quote). On mainnet `refundTo` is the Blindroll contract.
+
 ### Destination rules
 - EVM recipients: destination chain must be an EVM chain, and by default the destination address is the verified address. If a different address is entered, it's shown clearly and included in the signed message.
 - Start with: USDC on NEAR, USDC on Base, USDC on Arbitrum, USDT on Tron (if listed), native SOL/BTC as a stretch.
 
 ### Testnet behaviour
-- Options board: **real** dry quotes from mainnet 1Click (they don't move funds), labelled "estimate from mainnet prices".
-- Execution: **simulated**. The contract pays a `sim-sink.<contract>` account and the backend marks the payout `delivered (simulated)`. Every UI and API response says `simulated: true`.
+- Options board: **real** dry quotes from mainnet 1Click (they don't move funds), labelled "estimated" with "Estimate from mainnet prices". Quoted for EVM recipients (the quote needs a destination address of the right kind); destinations: USDC on Base, USDC on Arbitrum (`ONECLICK_DESTINATIONS`).
+- **As built on 2026-11-11: cross-chain options are shown but cannot be chosen** (`available: false`, with the reason). Nothing is simulated yet.
+- Proposed, **not built, waiting for the owner's answer to a SIMULATION REQUEST**: execution simulated on testnet. The contract pays a `sim-sink.<contract>` account and the backend marks the payout `delivered (simulated)`. Every UI and API response says `simulated: true`.
 
 ### Refunds
 `REFUNDED` / `FAILED`: USDC returns to the contract (`refundTo`). The approver UI shows the status and a **Reopen claim** button (`reopen_claim`). The recipient then claims again with a new quote. `INCOMPLETE_DEPOSIT` shouldn't happen (we send the exact amount); treat it as failed and investigate.

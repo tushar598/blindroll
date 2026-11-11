@@ -4,7 +4,10 @@ import { HttpError, approverOrgIds } from "./auth";
 import { serverConfig } from "./config";
 import { db } from "./db";
 import type { RunDeps } from "./runs";
-import { SESSION_COOKIE, readSessionToken } from "./session";
+import type { ClaimDeps } from "./claims";
+import { relay } from "./relayer";
+import { accountExists, isFullAccessKey, viewFunction } from "./rpc";
+import { SESSION_COOKIE, type ViewScope, readSessionToken, readViewToken } from "./session";
 
 const liveFetch: FetchLike = (url, init) => fetch(url, { ...init, cache: "no-store" });
 
@@ -59,3 +62,39 @@ export function handle<C>(fn: (req: NextRequest, ctx: C) => Promise<Response>) {
 }
 
 export type RunCtx = { params: Promise<{ runKey: string }> };
+
+/** Dependencies for the claim service: real RPC, the real relayer, and 1Click when a JWT is configured. */
+export function claimDeps(): ClaimDeps {
+  const config = serverConfig();
+  const jwt = process.env.ONECLICK_JWT;
+  return {
+    db: db(),
+    config,
+    view: viewFunction,
+    accountExists,
+    isFullAccessKey,
+    relay,
+    ...(jwt ? { oneclick: { baseUrl: config.oneclickBaseUrl, jwt, fetch: (url, init) => fetch(url, { ...init, cache: "no-store" }) } } : {}),
+  };
+}
+
+/** The recipient's view token (`Authorization: Bearer …`), scoped to this run. */
+export async function requireViewScope(req: NextRequest, runKey: string): Promise<ViewScope> {
+  const header = req.headers.get("authorization") ?? "";
+  const scope = await readViewToken(header.startsWith("Bearer ") ? header.slice(7) : undefined, runKey);
+  if (!scope) throw new HttpError(401, "view_expired", "Sign the view message again to continue");
+  return scope;
+}
+
+const hits = new Map<string, number[]>();
+/** Small in-memory limiter for the public claim endpoints (per IP and bucket). */
+export function rateLimit(req: NextRequest, bucket: string, max: number, windowMs = 60_000) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const key = `${bucket}:${ip}`;
+  const now = Date.now();
+  const recent = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
+  if (recent.length >= max) throw new HttpError(429, "rate_limited", "Too many requests; wait a minute and try again");
+  recent.push(now);
+  hits.set(key, recent);
+  if (hits.size > 5000) hits.clear();
+}

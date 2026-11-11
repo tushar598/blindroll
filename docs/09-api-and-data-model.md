@@ -46,10 +46,11 @@ Run `status`: `needs_mapping` → `review` → `finalized` → then the on-chain
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/claim/:runKey` | Public run info: org name, run name, deadline, status |
-| POST | `/api/claim/:runKey/view` | `{chain, address, signature, message}` → own row (amount, memo, status) + view token, or `404 not_listed` |
+| GET | `/api/claim/:runKey/challenge` | `{nonce, issued, recipient}` for the view message |
+| POST | `/api/claim/:runKey/view` | `{chain, address, nonce, issued, signature, publicKey?}` (the server rebuilds the message) → `{row, token}`: own row (amount, name, memo, claim status) + view token, or `404 not_listed`. The token is sent as `Authorization: Bearer …` to the endpoints below |
 | GET | `/api/claim/:runKey/options` | Payout options with estimated amounts (1Click dry quotes, cached 30 s) |
-| POST | `/api/claim/:runKey/prepare` | `{option, destinationAddress}` → for 1Click: real quote (`depositAddress`, `amountOut`, `minAmountOut`, `deadline`); then the exact claim message to sign, plus leaf, salt and proof |
-| POST | `/api/claim/:runKey/submit` | `{signature}` (EVM) or `{signedDelegate}` (NEAR) → relayer submits → `{txHash}` |
+| POST | `/api/claim/:runKey/prepare` | `{optionId, receiver}` → EVM: `{kind:"evm", claimId, message, expiresAtMs, summary}` (the exact claim message to sign). NEAR: `{kind:"near", claimId, call, summary}` (the `claim_near` call with leaf, salt and proof). Only `optionId: "near-usdc"` is accepted in this version; the 1Click path (real quote, `depositAddress`) is not built |
+| POST | `/api/claim/:runKey/submit` | EVM: `{claimId, signature}` → relayer submits `claim_evm`. NEAR: `{claimId, txHash}` after the wallet sent `claim_near`. → `{status, txHash, simulated}`; `502 claim_failed` if the contract did not record the claim |
 | GET | `/api/claim/:runKey/status` | Claim + payout status for this recipient |
 
 ### Internal
@@ -97,6 +98,8 @@ Differences in the built schema (`apps/web/lib/server/db.ts`; tables are created
 - `row_edits(id, run_id, by_account, enc_edit, created_at)`: the ordered, encrypted edit log. `overrides(run_id, rule_id, row_number, by_account, enc_reason, created_at)`, unique per finding.
 - `ai_calls` is keyed by `csv_sha256` (the cache): `enc_evidence` holds the request body, raw response bytes, signature and checks; `attestation_json` holds the raw preflight report.
 - `run_rows` are written at finalize, ordered by leaf hash.
+- `claims(id, run_id, row_id, option_id, payout_kind, payout_target, destination_asset, destination_address, expires_at_ms, message, claim_tx, status, error, simulated, created_at, updated_at)`; status `prepared` → `submitted` → `confirmed` | `failed`. `payouts` is not built yet (it belongs to the 1Click path).
+- Public claim endpoints are rate-limited per IP in memory. A run that is not on-chain yet answers `404` like an unknown run.
 - Database file: `<repo root>/data/blindroll.sqlite` (git-ignored); `BLINDROLL_DB_FILE` overrides it for tests.
 
 - `chain`, `address`, `amount` are stored in plaintext because they're needed for lookups and proofs. Everything identifying (names, emails, memos) goes in `enc_payload`.

@@ -12,6 +12,8 @@ Two signatures are involved:
 | NEAR | ✅ | `@near-wallet-selector/*` |
 | Solana | Stretch | `@solana/wallet-adapter-*` |
 
+As built (2026-11-11): EVM wallets are reached through injected providers found with EIP-6963 (`apps/web/lib/client/evm.ts`), with `viem` for verification on the server; `wagmi` and WalletConnect are not used. NEAR recipients use Meteor through wallet-selector.
+
 ## View message
 
 ```
@@ -24,7 +26,7 @@ issued: {iso_timestamp}
 - EVM: `personal_sign`; verify with `viem.verifyMessage`.
 - NEAR: NEP-413 `signMessage` (`message` = text above, `recipient` = `"blindroll"`, 32-byte `nonce`). Verify the signature and that the public key belongs to the account (`view_access_key` RPC).
 - Solana: `signMessage`; verify with `tweetnacl`.
-- Nonces are single-use, valid for 5 minutes.
+- Nonces are single-use, valid for 5 minutes. `GET /api/claim/:runKey/challenge` returns `{nonce, issued, recipient}`; the nonce is 32 random bytes in base64 and is used both as the `nonce:` line and (decoded) as the NEP-413 nonce. `issued` must be within 5 minutes of the server clock.
 
 ## Claim message (EVM) — must match the contract byte for byte
 
@@ -52,11 +54,15 @@ expires: {expires_at_ms}
 - Wallet support for signing delegate actions varies. Check which wallets in wallet-selector support it. **Fallback:** the recipient calls `claim_near` directly and pays a tiny gas fee. Document this in the UI.
 - The relayer account must have a **full-access key** to send Delegate actions (function-call keys can't), so use a dedicated account with a small balance and a monitored top-up.
 
+**As built (2026-11-11): only the fallback.** The NEAR recipient calls `claim_near` directly from Meteor and pays the gas; then the page reports the transaction and the backend confirms it with `is_claimed`. Delegate actions (gas-free NEAR claims) are not built.
+
 ## EVM recipients — relayer submits
 
 1. Recipient signs the claim message.
 2. `POST /api/claim/:runKey/submit` → the relayer calls `claim_evm(run_key, leaf, proof, payout, destination_asset, destination_address, expires_at_ms, signature_hex)`. Gas attached: 100 TGas.
 3. The relayer can't change the payout target: the contract rebuilds the message from the arguments and verifies the signature.
+
+The relayer (`apps/web/lib/server/relayer.ts` + `near-tx.ts`) builds, signs and sends the transaction itself (borsh `FunctionCall`, ed25519, `send_tx` with `wait_until: FINAL`), one at a time so nonces never collide. `pnpm relayer:check` sends one harmless real transaction to prove the key works. After sending, the backend trusts only the contract: the claim is `confirmed` when `is_claimed` is true, otherwise `failed` (a failed token transfer is rolled back on-chain and can be retried).
 
 ## Relayer safeguards
 

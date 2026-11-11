@@ -9,10 +9,13 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, init?: { method?: string; json?: unknown; form?: FormData }): Promise<T> {
+export async function api<T>(path: string, init?: { method?: string; json?: unknown; form?: FormData; token?: string }): Promise<T> {
   const res = await fetch(path, {
     method: init?.method ?? (init?.json !== undefined || init?.form ? "POST" : "GET"),
-    headers: init?.json !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: {
+      ...(init?.json !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(init?.token ? { Authorization: `Bearer ${init.token}` } : {}),
+    },
     body: init?.form ?? (init?.json !== undefined ? JSON.stringify(init.json) : undefined),
     credentials: "same-origin",
     cache: "no-store",
