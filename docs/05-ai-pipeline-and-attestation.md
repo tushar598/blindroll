@@ -132,14 +132,27 @@ Canonical JSON (RFC 8785 / `canonicalize` npm package), hashed with SHA-256 → 
   "rules": {"version": "rules-v1", "errors": 0, "warnings": 2,
             "results": [{"rule_id": "R006_outlier_vs_run", "row_hash": "…", "overridden": true, "override_reason_sha256": "…"}]},
   "edits": {"count": 1, "log_sha256": "…"},
+  "notes": ["currency defaulted to USDC"],
   "ai": {"model": "z-ai/glm-5.3-flash", "chat_id": "…", "request_sha256": "…", "response_sha256": "…",
          "signature": {"kind": "provider_tee", "algo": "ecdsa", "signing_address": "0x…", "signature": "0x…"},
-         "attestation": {"nonce": "…", "verified": true}},
+         "signature_verified": true,
+         "attestation": {"nonce": "…", "verified": false, "sha256": "…"}},
   "approval_policy": {"approvers": ["alice.testnet", "bob.testnet"], "threshold": 2}
 }
 ```
 
 `row_hash` = sha256 of the leaf hash, so findings can be matched to rows by approvers without revealing them publicly.
+
+Fields added while building (`packages/core/src/report/`, 2026-11-11):
+- `notes`: plain-language notes on how the table was read. `"currency defaulted to USDC"` appears when the file has no currency column; otherwise the array is empty.
+- `ai.signature_verified`: whether the signature checks in Step 4 passed at finalize time. `ai.signature` is `null` when no signature was available.
+- `ai.attestation.sha256`: sha256 of the raw preflight attestation text that the backend stores. `ai.attestation.verified` is `false` in the MVP (no Intel quote verification).
+- `ai` is `null` when the approver mapped the columns by hand (the manual fallback), so no AI call backs the run.
+- `rules.results` lists the findings left at finalize (warnings, all overridden), sorted by `rule_id` then `row_hash`; `row_hash` is `null` for run-level findings; `override_reason_sha256` is the sha256 of the reason text.
+- `edits.log_sha256` = sha256 of the canonical JSON of the edit log (row removals and cell edits, in order). The log itself is not published.
+- `inputs.row_count` counts the data rows in the file, including empty rows that were dropped.
+
+**Review and finalize rules** (`reviewRun`, `finalizeRun`): edits change the uploaded cells (or remove a row, with a reason) and the whole table is normalized and checked again, so an edit cannot bypass a rule. Errors can never be overridden. Finalize needs zero errors and every warning overridden. Leaves are ordered by leaf hash in the tree (not by file order). Salts are generated once per row and stored.
 
 `table_sha256` = sha256 of the canonical JSON array of `{chain, address, amount}` sorted by leaf hash.
 

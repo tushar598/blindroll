@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@noble/hashes": "^2.4.0",
+    "canonicalize": "^5.1.0",
     "papaparse": "^5.7.0",
     "viem": "^2.57.17",
     "zod": "^4.6.7"
