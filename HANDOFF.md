@@ -89,6 +89,7 @@ Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see t
 4. Nov 14: README (do X → see Y, real vs simulated, known limitations incl. attestation and "proving the refund"), 2-minute video, submit.
 
 ## 6. Open risks / known gaps
+- **CLI steps are temporary.** Approver #2 approves and funds via NEAR CLI commands for now (owner-approved for local testing). Before deployment, replace them with browser-wallet steps: see `docs/12-build-plan.md` → "Before the deployed version: replace CLI steps with browser wallets". DAO/multisig approvals (SputnikDAO, Trezu) are a stretch goal listed there under "Later".
 - AI attestation: only the signature and the nonce/signer binding fields are checked; no Intel DCAP quote verification (see docs/05).
 - `reopen_claim` trusts that 1Click really refunded (see docs/04 "Open issue: proving the refund").
 - 1Click has no testnet: on testnet, cross-chain delivery will need a SIMULATION REQUEST to the owner before building it (dry quotes are real).

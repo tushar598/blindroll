@@ -24,7 +24,14 @@ function getSelector(network: string): Promise<WalletSelector> {
 /** Connects the wallet if needed and returns the account ID. */
 export async function connectWallet(network: string, contractId: string): Promise<string> {
   const wallet = await (await getSelector(network)).wallet(WALLET_ID);
-  let accounts = await wallet.getAccounts();
+  // Meteor's getAccounts() throws ("No current account connected…") instead of returning [] when
+  // nothing is connected yet, so a failure here just means "not connected".
+  let accounts: Awaited<ReturnType<typeof wallet.getAccounts>> = [];
+  try {
+    accounts = await wallet.getAccounts();
+  } catch {
+    accounts = [];
+  }
   if (accounts.length === 0) accounts = await wallet.signIn({ contractId, accounts: [] });
   const first = accounts[0];
   if (!first) throw new Error("The wallet did not return an account");

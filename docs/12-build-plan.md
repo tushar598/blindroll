@@ -37,6 +37,21 @@ The hackathon runs Nov 1–14, 2026 (per other teams' READMEs; confirm the exact
 
 Confidential Intents test: run it in parallel on Nov 11 only if someone has spare time, timeboxed to that day.
 
+## Before the deployed version: replace CLI steps with browser wallets (required)
+
+For now, approver #2 (`blindroll-dev.testnet`) approves and funds through NEAR CLI commands shown on the run page, because that account has no browser wallet. This is **temporary, owner-approved for local testing only**. Before the app is deployed for judges or users, every on-chain step must happen in a browser wallet, with no terminal:
+
+1. **Approver #2 in a browser wallet.** The owner creates a second testnet wallet account (e.g. a second Meteor account) and it replaces `blindroll-dev.testnet` as approver #2 in the seeded org. Threshold stays 2.
+2. **"Fund run" button.** Sends `ft_transfer_call` (msg `{"fund_run":"<run_key>"}`) from the connected wallet, and shows that wallet's mUSDC balance.
+3. **"Get test USDC" button (testnet only).** Mints mUSDC to the connected wallet. Hidden when `NEAR_NETWORK=mainnet`; `assertNetworkConfig` must pass.
+4. **No CLI commands in the UI.** Remove the copyable commands, or show them only when `NODE_ENV=development`, never in a production build.
+5. **More wallets.** Add common NEAR wallets from Wallet Selector besides Meteor (check which support testnet and NEP-413 `signMessage`).
+6. Update [02-user-flows.md](02-user-flows.md) and `HANDOFF.md` when done.
+
+## Later (stretch, not needed for the hackathon)
+
+- **DAO / multisig approvals.** A real DAO would approve and fund from a multisig or DAO treasury account (e.g. SputnikDAO, Trezu) instead of personal wallets: approvals become DAO proposals, and funding comes from the treasury. The contract already accepts any NEAR account as an approver, so this is mainly UI and proposal-flow work.
+
 ## Definition of done
 
 - All tests pass; no secrets committed.
