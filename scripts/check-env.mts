@@ -19,6 +19,7 @@ try {
   // Optional, testnet only: both must be set for simulated cross-chain claims to be selectable.
   const simKey = Boolean(process.env.SIM_SINK_PRIVATE_KEY?.trim());
   console.log(`sim sink (testnet-only simulation): account ${simSinkId ?? "not set"}, key ${simKey ? "set" : "not set"}`);
+  console.log(`demo org approvers: ${process.env.DEMO_ORG_APPROVERS?.trim() || "default (tushar1962005.testnet, blindroll-dev.testnet)"}`);
   console.log(`contract/token/relayer IDs: ${process.env.BLINDROLL_CONTRACT_ID}, ${process.env.USDC_TOKEN_ID}, ${process.env.RELAYER_ACCOUNT_ID}`);
 } catch (err) {
   if (err instanceof EnvError) {

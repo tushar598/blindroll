@@ -47,11 +47,30 @@ export function serverConfig(): ServerConfig {
 export const DEMO_ORG = {
   id: "demo-org",
   name: "Blindroll Demo DAO",
+  /** Defaults; DEMO_ORG_APPROVERS in the env file replaces them (see demoOrgApprovers). */
   approvers: ["tushar1962005.testnet", "blindroll-dev.testnet"],
   threshold: 2,
   /** Receives unclaimed funds after the deadline; also the treasury that holds the test USDC. */
   refundAccount: "blindroll-dev.testnet",
 } as const;
+
+/**
+ * Approvers of the demo org. Optional env DEMO_ORG_APPROVERS (comma-separated NEAR accounts, at
+ * least `threshold` of them) replaces the defaults, so approver #2 can become a browser-wallet
+ * account without a code change (docs/12 "Before the deployed version"). It applies to runs
+ * finalized afterwards: a run already on-chain keeps the approvers stored in the contract.
+ */
+export function demoOrgApprovers(env: Record<string, string | undefined> = process.env): string[] {
+  const raw = env.DEMO_ORG_APPROVERS?.trim();
+  if (!raw) return [...DEMO_ORG.approvers];
+  const list = raw.split(",").map((a) => a.trim()).filter(Boolean);
+  if (list.length < DEMO_ORG.threshold || list.length > 10) throw new Error(`DEMO_ORG_APPROVERS must list ${DEMO_ORG.threshold} to 10 accounts`);
+  if (new Set(list).size !== list.length) throw new Error("DEMO_ORG_APPROVERS must not repeat an account");
+  for (const a of list) {
+    if (!/^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/.test(a)) throw new Error("DEMO_ORG_APPROVERS holds an invalid NEAR account ID");
+  }
+  return list;
+}
 
 export const MAX_RUN_ROWS = 500;
 export const DEFAULT_CLAIM_DAYS = 14;

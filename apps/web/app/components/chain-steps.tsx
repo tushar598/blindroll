@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
+import { viewContract } from "@/lib/client/chain";
 import type { RunView } from "@/lib/client/types";
 import { callContract, explorerAccount, explorerTx } from "@/lib/client/wallet";
 
@@ -16,7 +17,10 @@ const formatUsdc = (base: string) => {
   return `${(n / 1_000_000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
 };
 
-/** create_run → approve_run (threshold) → fund. Each step is a real transaction from a wallet or the NEAR CLI. */
+/** Copyable NEAR CLI commands are a local-development aid only; a production build never shows them (docs/12). */
+const SHOW_CLI = process.env.NODE_ENV === "development";
+
+/** create_run → approve_run (threshold) → fund. Each step is a real transaction from the signed-in approver's wallet. */
 export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accountId: string; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +34,7 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
     await onChanged();
   }
 
-  // Other approvers act from the CLI, so the page re-reads the contract by itself every few
+  // Other approvers act from their own browser, so the page re-reads the contract by itself every few
   // seconds until the run is fully funded (or closed/cancelled).
   const waiting = !chain || ["draft", "approved"].includes(chain.status.toLowerCase());
   const busyRef = useRef(false);
@@ -48,6 +52,21 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
     }, 5000);
     return () => clearInterval(timer);
   }, [waiting, runKey, onChanged]);
+
+  // The signed-in approver's token balance, read by the browser from a public RPC while funding is due.
+  const [balance, setBalance] = useState<string | null>(null);
+  const needsFunds = chain?.status.toLowerCase() === "approved";
+  const { network, tokenId } = run;
+  const loadBalance = useCallback(
+    () =>
+      viewContract<string>(network, tokenId, "ft_balance_of", { account_id: accountId })
+        .then((b) => setBalance(b.value))
+        .catch(() => setBalance(null)),
+    [network, tokenId, accountId],
+  );
+  useEffect(() => {
+    if (needsFunds) void loadBalance();
+  }, [needsFunds, loadBalance]);
 
   async function act(name: string, fn: () => Promise<string | null>, isCreate = false) {
     setBusy(name);
@@ -85,7 +104,29 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
       ).txHash;
     });
 
+  /** TESTNET ONLY: mints the missing test USDC to the signed-in approver (the mock token has an open mint). */
+  const mintTestUsdc = () =>
+    act("mint", async () => {
+      if (run.network === "mainnet") throw new Error("Test USDC does not exist on mainnet");
+      const missing = BigInt(chain!.total_amount) - BigInt(chain!.funded_amount) - BigInt(balance ?? "0");
+      const tx = (
+        await callContract(run.network, {
+          signerId: accountId,
+          receiverId: run.tokenId,
+          methodName: "mint",
+          args: { account_id: accountId, amount: (missing > 0n ? missing : 1_000_000n).toString() },
+          gasTgas: 30,
+          depositYocto: "0",
+        })
+      ).txHash;
+      await loadBalance();
+      return tx;
+    });
+
   const approvals = chain?.approvals ?? [];
+  // Once the run is on-chain, its approvers are the ones stored in the contract.
+  const approverList = chain?.approvers ?? run.org.approvers;
+  const threshold = chain?.threshold ?? run.org.threshold;
   const iApproved = approvals.includes(accountId);
   const status = chain?.status.toLowerCase() ?? "not_created";
   const remaining = chain ? (BigInt(chain.total_amount) - BigInt(chain.funded_amount)).toString() : fin.totalAmount;
@@ -127,9 +168,9 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
         )}
       </Step>
 
-      <Step title={`Approve (${approvals.length} of ${run.org.threshold} needed)`} state={!chain ? "later" : status === "draft" ? "now" : "done"}>
+      <Step title={`Approve (${approvals.length} of ${threshold} needed)`} state={!chain ? "later" : status === "draft" ? "now" : "done"}>
         <ul className="space-y-1.5 text-sm">
-          {run.org.approvers.map((a) => (
+          {approverList.map((a) => (
             <li key={a} className="flex items-center gap-2">
               <span className={approvals.includes(a) ? "text-accent" : "text-muted"}>{approvals.includes(a) ? "✓" : "○"}</span>
               <span className="num">{a}</span>
@@ -139,14 +180,21 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
         </ul>
         {chain && status === "draft" && (
           <>
-            {!iApproved && (
+            {!iApproved && approverList.includes(accountId) && (
               <button className="btn mt-3" onClick={() => void approve()} disabled={busy !== null}>
                 {busy === "approve" ? "Confirm in your wallet…" : "Approve from my wallet"}
               </button>
             )}
-            {run.org.approvers.filter((a) => !approvals.includes(a) && a !== accountId).map((a) => (
-              <Cli key={a} label={`${a} approves from the NEAR CLI:`} command={cliApprove(a)} />
-            ))}
+            {!approverList.includes(accountId) && <p className="mt-3 text-sm text-muted">Your account is not an approver of this run on the contract.</p>}
+            {iApproved && approvals.length < threshold && (
+              <p className="mt-3 text-sm leading-6 text-muted">
+                Waiting for another approver. They open this page, sign in with their own wallet and press Approve. This page updates by itself.
+              </p>
+            )}
+            {SHOW_CLI &&
+              approverList.filter((a) => !approvals.includes(a) && a !== accountId).map((a) => (
+                <Cli key={a} label={`Development only: ${a} approves from the NEAR CLI:`} command={cliApprove(a)} />
+              ))}
           </>
         )}
       </Step>
@@ -163,10 +211,29 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
               Send {formatUsdc(remaining)} USDC to the contract with the run key in the message. Extra funds are returned by the contract.
               {run.network !== "mainnet" && " On testnet this is the test token, not real USDC."}
             </p>
-            <Cli label={`${run.org.refundAccount} (treasury) funds from the NEAR CLI:`} command={cliFund(run.org.refundAccount)} />
-            <button className="btn-quiet mt-3" onClick={() => void fund()} disabled={busy !== null}>
-              {busy === "fund" ? "Confirm in your wallet…" : "Or fund from my wallet (needs a USDC balance)"}
-            </button>
+            <p className="mt-3 text-sm">
+              Your wallet <span className="num">{accountId}</span> holds{" "}
+              <span className="num">{balance === null ? "…" : formatUsdc(balance)} USDC</span>
+              {run.network !== "mainnet" && " (test token)"}.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <button className="btn" onClick={() => void fund()} disabled={busy !== null || balance === null || BigInt(balance) < BigInt(remaining)}>
+                {busy === "fund" ? "Confirm in your wallet…" : `Fund ${formatUsdc(remaining)} USDC from my wallet`}
+              </button>
+              {run.network !== "mainnet" && (
+                <button className="btn-quiet" onClick={() => void mintTestUsdc()} disabled={busy !== null || balance === null}>
+                  {busy === "mint" ? "Confirm in your wallet…" : "Get test USDC"}
+                </button>
+              )}
+            </div>
+            {balance !== null && BigInt(balance) < BigInt(remaining) && (
+              <p className="mt-2 text-xs text-muted">
+                {run.network !== "mainnet"
+                  ? "Not enough test USDC in this wallet yet. “Get test USDC” mints the missing amount of the test token to your wallet; it has no real value."
+                  : "This wallet does not hold enough USDC to fund the run."}
+              </p>
+            )}
+            {SHOW_CLI && <Cli label={`Development only: ${run.org.refundAccount} (treasury) funds from the NEAR CLI:`} command={cliFund(run.org.refundAccount)} />}
           </>
         )}
         {status === "active" && (

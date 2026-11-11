@@ -39,14 +39,16 @@ Confidential Intents test: run it in parallel on Nov 11 only if someone has spar
 
 ## Before the deployed version: replace CLI steps with browser wallets (required)
 
-For now, approver #2 (`blindroll-dev.testnet`) approves and funds through NEAR CLI commands shown on the run page, because that account has no browser wallet. This is **temporary, owner-approved for local testing only**. Before the app is deployed for judges or users, every on-chain step must happen in a browser wallet, with no terminal:
+Before the app is deployed for judges or users, every on-chain step must happen in a browser wallet, with no terminal. Status (2026-11-11):
 
-1. **Approver #2 in a browser wallet.** The owner creates a second testnet wallet account (e.g. a second Meteor account) and it replaces `blindroll-dev.testnet` as approver #2 in the seeded org. Threshold stays 2.
-2. **"Fund run" button.** Sends `ft_transfer_call` (msg `{"fund_run":"<run_key>"}`) from the connected wallet, and shows that wallet's mUSDC balance.
-3. **"Get test USDC" button (testnet only).** Mints mUSDC to the connected wallet. Hidden when `NEAR_NETWORK=mainnet`; `assertNetworkConfig` must pass.
-4. **No CLI commands in the UI.** Remove the copyable commands, or show them only when `NODE_ENV=development`, never in a production build.
-5. **More wallets.** Add common NEAR wallets from Wallet Selector besides Meteor (check which support testnet and NEP-413 `signMessage`).
-6. Update [02-user-flows.md](02-user-flows.md) and `HANDOFF.md` when done.
+1. **Approver #2 in a browser wallet.** *Code ready, waiting for the owner's account.* The demo org's approvers come from the optional env `DEMO_ORG_APPROVERS` (comma-separated; default `tushar1962005.testnet,blindroll-dev.testnet`). The owner creates a second Meteor testnet account and sets `DEMO_ORG_APPROVERS=tushar1962005.testnet,<second account>`. Threshold stays 2. It applies to runs finalized afterwards; a run already on-chain keeps the approvers stored in the contract, and the run page shows those.
+2. **"Fund run" button.** *Done.* Sends `ft_transfer_call` (msg `{"fund_run":"<run_key>"}`) from the signed-in approver's wallet and shows that wallet's USDC balance (read by the browser from a public RPC).
+3. **"Get test USDC" button (testnet only).** *Done.* Mints the missing amount of mUSDC to the signed-in wallet. Not rendered when the run's network is `mainnet`; the server's `assertNetworkConfig` still runs at startup.
+4. **No CLI commands in the UI.** *Done.* The copyable commands render only when `NODE_ENV=development`, labelled "Development only"; a production build never shows them.
+5. **More wallets.** *Not done.* Only Meteor is wired. Depends on the gas-free NEAR claim decision (see `HANDOFF.md`): Wallet Selector's Meteor module cannot sign delegate actions, Meteor's own SDK can.
+6. [02-user-flows.md](02-user-flows.md) and `HANDOFF.md` are updated when 1 and 5 are closed.
+
+One Meteor connection is remembered per browser for this site. Wallet-sent transactions first check that the wallet is connected as the expected signer and ask to reconnect if it is not, so two approvers (or an approver and a recipient) can share a browser by switching accounts.
 
 ## Later (stretch, not needed for the hackathon)
 

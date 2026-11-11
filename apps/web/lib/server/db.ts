@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { findRepoRoot } from "@blindroll/core/env";
-import { DEMO_ORG } from "./config";
+import { DEMO_ORG, demoOrgApprovers } from "./config";
 
 // Schema: docs/09. Amounts are decimal strings of USDC base units (never floats).
 
@@ -204,9 +204,15 @@ export function openDb(file: string) {
   sqlite.prepare("INSERT OR IGNORE INTO orgs (id, name, threshold, refund_account, created_at) VALUES (?, ?, ?, ?, ?)").run(
     DEMO_ORG.id, DEMO_ORG.name, DEMO_ORG.threshold, DEMO_ORG.refundAccount, now,
   );
-  DEMO_ORG.approvers.forEach((a, i) =>
-    sqlite.prepare("INSERT OR IGNORE INTO org_approvers (org_id, account_id, position) VALUES (?, ?, ?)").run(DEMO_ORG.id, a, i),
-  );
+  // The seeded approver list follows the configuration (it is replaced, not only added to).
+  const approvers = demoOrgApprovers();
+  const current = (sqlite.prepare("SELECT account_id FROM org_approvers WHERE org_id = ? ORDER BY position").all(DEMO_ORG.id) as Array<{ account_id: string }>).map((r) => r.account_id);
+  if (current.join(",") !== approvers.join(",")) {
+    sqlite.transaction(() => {
+      sqlite.prepare("DELETE FROM org_approvers WHERE org_id = ?").run(DEMO_ORG.id);
+      approvers.forEach((a, i) => sqlite.prepare("INSERT INTO org_approvers (org_id, account_id, position) VALUES (?, ?, ?)").run(DEMO_ORG.id, a, i));
+    })();
+  }
   return drizzle(sqlite);
 }
 

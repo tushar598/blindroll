@@ -1,6 +1,8 @@
 // Backend services against an in-memory database. No network: the AI call replays the recorded
 // fixture and the NEAR RPC is a stub.
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type FetchLike, reportSha256, sha256, verifyProof } from "@blindroll/core";
@@ -216,5 +218,29 @@ describe("manual mapping fallback (AI off)", () => {
     const report = JSON.parse(getReportJson(db, runKey)!);
     expect(report.ai).toBeNull();
     expect(report.notes).toEqual(["currency defaulted to USDC"]);
+  });
+});
+
+describe("demo org approvers from DEMO_ORG_APPROVERS", () => {
+  it("defaults, parses a list and rejects bad input", async () => {
+    const { demoOrgApprovers } = await import("../lib/server/config");
+    expect(demoOrgApprovers({})).toEqual(["tushar1962005.testnet", "blindroll-dev.testnet"]);
+    expect(demoOrgApprovers({ DEMO_ORG_APPROVERS: " a.testnet, b.testnet " })).toEqual(["a.testnet", "b.testnet"]);
+    expect(() => demoOrgApprovers({ DEMO_ORG_APPROVERS: "a.testnet" })).toThrow("2 to 10");
+    expect(() => demoOrgApprovers({ DEMO_ORG_APPROVERS: "a.testnet,a.testnet" })).toThrow("repeat");
+    expect(() => demoOrgApprovers({ DEMO_ORG_APPROVERS: "a.testnet,Bad Account" })).toThrow("invalid");
+  });
+
+  it("replaces the seeded approvers when the configuration changes", async () => {
+    const { openDb, orgApprovers } = await import("../lib/server/db");
+    const file = join(mkdtempSync(join(tmpdir(), "blindroll-")), "t.sqlite");
+    const list = (d: ReturnType<typeof openDb>) => d.select().from(orgApprovers).all().map((a) => a.accountId);
+    expect(list(openDb(file))).toEqual(["tushar1962005.testnet", "blindroll-dev.testnet"]);
+    process.env.DEMO_ORG_APPROVERS = "tushar1962005.testnet,second.testnet";
+    try {
+      expect(list(openDb(file))).toEqual(["tushar1962005.testnet", "second.testnet"]);
+    } finally {
+      delete process.env.DEMO_ORG_APPROVERS;
+    }
   });
 });
