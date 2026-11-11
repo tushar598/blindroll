@@ -85,9 +85,10 @@ Still to apply:
 | Contract | `blindroll.blindroll-dev.testnet` (deployed) |
 | Mock USDC | `usdc.blindroll-dev.testnet` (deployed) |
 | Relayer | `relayer.blindroll-dev.testnet` |
-| Sim sink (testnet-only simulation) | `sim-sink.blindroll-dev.testnet` — **not created yet**; key goes in `SIM_SINK_PRIVATE_KEY`, account in `SIM_SINK_ACCOUNT_ID`. Must never be set on mainnet |
+| Sim sink (testnet-only simulation) | `sim-sink.blindroll-dev.testnet` — created by the owner on 2026-11-11 (0.5 NEAR); `SIM_SINK_ACCOUNT_ID` and `SIM_SINK_PRIVATE_KEY` are set. `pnpm simsink:check` (read-only) confirmed the key is a full-access key. Must never be set on mainnet |
 | Approver #1 | `tushar1962005.testnet` (Meteor web wallet) |
-| Approver #2 | `blindroll-dev.testnet` |
+| Approver #2 | `blindroll-dev.testnet` (CLI only) until the owner sets `DEMO_ORG_APPROVERS=tushar1962005.testnet,<second Meteor account>` in `.env.local` |
+| Owner's test recipients | A second Meteor testnet account and a MetaMask address (in the git-ignored `docs/samples/my-recipient-test.csv`; never commit it) |
 | Tooling | cargo-near 0.23, NEAR CLI 0.31.1 (in `~/.cargo/bin`), Node 24, pnpm, Rust 1.96 (no pin needed) |
 
 **Env file:** one file at the repo root, `near_bulid/.env.local` (git-ignored). `packages/core/src/env.ts` loads it for the app (`apps/web/next.config.ts`) and for scripts; `pnpm env:check` prints only the names of missing variables (all 16 set on 2026-11-11). Never print, log or commit values. A Claude Code hook blocks shell commands that name the file, so agents cannot read it; use `.env.example` for names.
@@ -95,17 +96,24 @@ Still to apply:
 Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see the root `package.json` scripts).
 
 ## 5. Next steps, in order
-1. Owner: create `sim-sink.blindroll-dev.testnet`, put its account and key in `.env.local`, run `pnpm env:check`; then run the recipient test (USDC on NEAR, then a simulated "USDC on Base" claim → refund → reopen → claim again).
-2. Fix whatever the browser tests show.
-3. Report verify page (`/runs/<run_key>/report`), reconciled export.
-4. Nov 13: deploy the app. SQLite on a serverless host does not persist: pick a host with a disk, or decide on another database first.
-5. Nov 14: README (do X → see Y, known limitations incl. attestation, "proving the refund", NEAR claims pay their own gas), 2-minute video, submit.
+State on 2026-11-11 (evening), after commits `e2dadba`, `a1917f2`, `9c62e62` and the README commit:
+
+- **Owner-verified on testnet:** NEAR claim (`claim_near`, tx `5YSRXdSH81hvmTFYS6CMckNUiaX6QEhMch3RDMj3r5Y5`) and EVM claim via the relayer (tx `BYXNerEbjZJrxKzhho7DJgzvsZWJ6EhyKGRwaqaR5R1N`).
+- **Built, not yet tested in a browser:** claim-page "Connected as / Switch account"; report verify page + export (the same checks pass from the CLI on run `run-Ngs7_871eapi`); Fund / Get test USDC buttons; the simulated cross-chain claim → refund → reopen path.
+
+1. **Owner decision: gas-free NEAR claims.** Result of the 1-hour check: Wallet Selector 10.1.4 (latest) Meteor module throws "Method not supported" for `signDelegateAction`, and Wallet Selector core has no delegate-action API. Meteor's own SDK `@meteorwallet/sdk` 3.24.1 (`MeteorConnect`, action `near::sign_delegate_actions`) documents NEP-366 signing; not tried in a browser. Two options were sent to the owner: (A) move Meteor from Wallet Selector to Meteor's SDK, contract unchanged, relayer wraps the SignedDelegate; (B) contract method that lets the relayer submit a NEAR claim that can only pay the leaf's own account (contract change + redeploy). **Build neither before the owner chooses.**
+2. Owner: run the simulated test ("USDC on Base" → refund → reopen → claim again) and the new screens; fix whatever shows up.
+3. Owner: create a second Meteor approver account and set `DEMO_ORG_APPROVERS`; then test create → approve ×2 → Get test USDC → Fund with no terminal. After that, close items 1, 5 and 6 of docs/12 "Before the deployed version".
+4. Deploy (owner chose Railway or Render with a persistent volume, not Vercel). Needs a GitHub repo (nothing is pushed yet) and the owner's hosting account. Root scripts `pnpm build` / `pnpm start` exist; set `BLINDROLL_DB_FILE` to a path on the volume and `APP_URL` to the public URL. A production build was started locally and served pages.
+5. README: rewritten on 2026-11-11 (do X → see Y, real vs simulated, privacy, limitations). Add the hosted URL and re-check every row after the deploy. Then the 2-minute video and submit by Nov 14.
 
 ## 6. Open risks / known gaps
-- **CLI steps are temporary.** Approver #2 approves and funds via NEAR CLI commands for now (owner-approved for local testing). Before deployment, replace them with browser-wallet steps: see `docs/12-build-plan.md` → "Before the deployed version: replace CLI steps with browser wallets". DAO/multisig approvals (SputnikDAO, Trezu) are a stretch goal listed there under "Later".
+- **CLI steps:** the copyable CLI commands now render only in development. Funding and test-USDC minting are wallet buttons. Approver #2 is still a CLI-only account until the owner sets `DEMO_ORG_APPROVERS` (see `docs/12-build-plan.md` → "Before the deployed version").
+- **One Meteor connection per browser** is shared by approver pages and the claim page. The claim page shows the remembered account and offers "Switch account"; wallet-sent transactions check the signer first (`ensureWalletAccount` in `apps/web/lib/client/wallet.ts`).
+- **Export column `leaf_index`** is the Merkle tree position, not the row number of the uploaded file (the file row number is not stored after finalize). DAO/multisig approvals (SputnikDAO, Trezu) are a stretch goal listed there under "Later".
 - AI attestation: only the signature and the nonce/signer binding fields are checked; no Intel DCAP quote verification (see docs/05).
 - `reopen_claim` trusts that 1Click really refunded (see docs/04 "Open issue: proving the refund").
-- 1Click has no testnet: on testnet, cross-chain delivery will need a SIMULATION REQUEST to the owner before building it (dry quotes are real).
+- 1Click has no testnet: cross-chain delivery on testnet is the owner-approved simulation with a real refund (docs/06); dry quotes are real.
 - 1Click **dry** quote schema confirmed; the non-dry response (`depositAddress`, deadline fields) is still unconfirmed and needs an existing mainnet `refundTo`.
 - Native mainnet USDC contract ID and its `storage_deposit` behaviour not yet confirmed.
 - Wallet support for signing NEP-366 delegate actions not yet checked (fallback: direct `claim_near` call).

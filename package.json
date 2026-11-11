@@ -3,6 +3,8 @@
   "private": true,
   "packageManager": "pnpm@12.16.1",
   "scripts": {
+    "build": "pnpm --filter web build",
+    "start": "pnpm --filter web start",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "vectors": "pnpm --filter @blindroll/core vectors",
