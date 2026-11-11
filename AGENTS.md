@@ -3,6 +3,7 @@
 Blindroll is claim-based payroll on NEAR for the NEAR Hackathon (Real-World Money + Privacy & Private AI).
 
 ## Read first
+0. `HANDOFF.md` (current state, owner decisions, accounts, next steps). Update it at the end of every session.
 1. `docs/README.md` (index and key decisions)
 2. `docs/12-build-plan.md` (what to build, in what order)
 3. The spec for the part you're working on (`docs/04` contract, `docs/05` AI, `docs/06` rails, `docs/07` claims, `docs/09` API)

@@ -65,7 +65,7 @@ near contract call-function as-read-only "$USDC" ft_balance_of json-args "{\"acc
 
 cat <<MSG
 
-Deployed. Put these in apps/web/.env.local:
+Deployed. Put these in .env.local at the repo root ($ROOT/.env.local), then run: pnpm env:check
   NEAR_NETWORK=testnet
   BLINDROLL_CONTRACT_ID=$BLINDROLL
   USDC_TOKEN_ID=$USDC

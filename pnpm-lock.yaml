@@ -168,6 +168,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@blindroll/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       next:
         specifier: 16.4.5
         version: 16.4.5(@babel/core@7.29.13(supports-color@7.2.0))(@types/node@20.19.43)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)

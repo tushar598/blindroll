@@ -28,7 +28,7 @@ Request rules (needed for signature verification):
 - Use the **canonical model ID** and header `x-no-aliasing: true`, so the response carries a `provider_tee` signature.
 - Non-streaming. Keep the **exact request body bytes** and the **exact raw response bytes** (no re-serialization; `Accept-Encoding: identity`).
 - `temperature: 0`. Ask for JSON only.
-- Pick the model from https://docs.near.ai/cloud/models.md. Examples seen in the docs and other projects: `zai-org/GLM-5.1-FP8`, `Qwen/Qwen3.8-27B`. Make it `NEAR_AI_MODEL` in env.
+- Pick the model from https://docs.near.ai/cloud/models.md. **Chosen model: `z-ai/glm-5.3-flash`** (small and cheap; the live API rejects `zai-org/GLM-5.1-FP8` when `x-no-aliasing: true` is set, so that ID is not canonical). It is `NEAR_AI_MODEL` in env.
 
 System prompt (store in `packages/core/src/ai/prompts.ts`):
 ```
@@ -116,7 +116,7 @@ Canonical JSON (RFC 8785 / `canonicalize` npm package), hashed with SHA-256 → 
   "rules": {"version": "rules-v1", "errors": 0, "warnings": 2,
             "results": [{"rule_id": "R006_outlier_vs_run", "row_hash": "…", "overridden": true, "override_reason_sha256": "…"}]},
   "edits": {"count": 1, "log_sha256": "…"},
-  "ai": {"model": "zai-org/GLM-5.1-FP8", "chat_id": "…", "request_sha256": "…", "response_sha256": "…",
+  "ai": {"model": "z-ai/glm-5.3-flash", "chat_id": "…", "request_sha256": "…", "response_sha256": "…",
          "signature": {"kind": "provider_tee", "algo": "ecdsa", "signing_address": "0x…", "signature": "0x…"},
          "attestation": {"nonce": "…", "verified": true}},
   "approval_policy": {"approvers": ["alice.testnet", "bob.testnet"], "threshold": 2}

@@ -6,6 +6,7 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "vectors": "pnpm --filter @blindroll/core vectors",
-    "test:contracts": "cd contracts && cargo test"
+    "test:contracts": "cd contracts && cargo test",
+    "env:check": "pnpm --filter @blindroll/core exec tsx ../../scripts/check-env.ts"
   }
 }

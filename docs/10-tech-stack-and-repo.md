@@ -57,6 +57,8 @@ near_bulid/
 
 ## Environment variables (`.env.example`)
 
+One env file for everything: **`.env.local` at the repo root** (git-ignored), not inside `apps/web`. `packages/core/src/env.ts` (`@blindroll/core/env`) loads it and runs the startup check, which reports only the **names** of missing or empty variables. `apps/web/next.config.ts` calls it for the app; scripts call it directly; `pnpm env:check` runs it on its own.
+
 ```
 NEAR_NETWORK=testnet
 NEAR_RPC_URL=https://rpc.testnet.near.org
@@ -66,7 +68,8 @@ RELAYER_ACCOUNT_ID=relayer.<your-account>.testnet
 RELAYER_PRIVATE_KEY=ed25519:...                     # never commit
 NEAR_AI_API_KEY=...                                 # NEAR Builders $10 key or a cloud.near.ai key; never commit
 NEAR_AI_BASE_URL=https://cloud-api.near.ai/v1
-NEAR_AI_MODEL=zai-org/GLM-5.1-FP8                   # confirm on docs.near.ai/cloud/models
+NEAR_AI_MODEL=z-ai/glm-5.3-flash                    # small model; listed on docs.near.ai/cloud/models
+NEAR_AI_LIVE=0                                      # 1 = allow live NEAR AI Cloud calls
 ONECLICK_BASE_URL=https://1click.chaindefuser.com/v0
 ONECLICK_JWT=...                                    # partners.near-intents.org
 ONECLICK_MODE=dry                                   # dry | live (live only on mainnet)
