@@ -99,6 +99,22 @@ From the official response-signatures docs:
 
 MVP fallback if full attestation verification takes too long: verify the signature cryptographically and store the attestation report raw, marked `attestation_verified: false`. Say so in the README.
 
+### What the code does today (confirmed with a real call on 2026-11-11)
+
+Fixture: `packages/core/test-vectors/ai/mapping-fixture.json` (exact request body, raw response bytes, signature response) and `attestation-preflight.json` (raw report), recorded by `NEAR_AI_LIVE=1 pnpm ai:record` (`scripts/record-ai-fixture.mts`). All tests replay it; nothing calls the live API.
+
+Observed live behaviour (matches the docs above):
+- One request returns both reports: `GET /v1/attestation/report?signing_algo=ecdsa&nonce=<64 hex>&model=<MODEL_ID>&provider=near` with `x-no-aliasing: true` → `gateway_attestation` and `model_attestations[]` (1 entry for `z-ai/glm-5.3-flash`). No API key needed.
+- Each report has `signing_address`, `signing_algo`, `request_nonce`, `intel_quote` (TDX v4, hex). The quote's 64-byte `report_data` is `signer address (20 bytes) ‖ 12 zero bytes ‖ nonce (32 bytes)`.
+- The completion `id` is the `<CHAT_ID>` for `/v1/signature/<CHAT_ID>?signing_algo=ecdsa`; the signature was available on the first try. Response fields: `text`, `signature`, `signing_address`, `signing_algo`, `signature_kind` (`provider_tee`).
+- The model spends reasoning tokens, so the request sets `max_tokens: 1500`.
+
+Implemented in `packages/core/src/ai/`:
+- `verifyAiSignature`: `signature_kind = provider_tee`, `text` = `<MODEL_ID>:<sha256 request>:<sha256 response>`, EIP-191 signer = `signing_address`. **Only `ecdsa` is supported** (it is the algorithm we request); any other algorithm is unverified.
+- `checkPreflightAttestation`: exactly one model report with the same signer and algorithm, which echoes our nonce and whose quote `report_data` binds signer + nonce.
+- **Not verified (the MVP fallback above is in use):** the Intel DCAP quote signature, RTMR3 event-log replay, MRCONFIGID and the NVIDIA GPU evidence. So the report says `ai.attestation.verified: false`, the raw report is stored, and the README must list this.
+- `requestColumnMapping`: preflight → one completion (one retry at most on an invalid mapping) → signature fetch (a 404 is retried 3 times) → checks. The caller enforces `NEAR_AI_LIVE` and the cache by `csv_sha256`.
+
 ## Step 5 — Attested report
 
 Canonical JSON (RFC 8785 / `canonicalize` npm package), hashed with SHA-256 → `report_sha256`. **It contains no amounts per person and no addresses.** It's safe to show publicly.

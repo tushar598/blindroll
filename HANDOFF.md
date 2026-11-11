@@ -1,22 +1,41 @@
 # HANDOFF — read this first in every new session
 
-Last updated: 2026-11-10 (end of day). Update this file at the end of every work session.
+Last updated: 2026-11-11 (after the testnet deploy and the NEAR AI Cloud fixture). Update this file at the end of every work session.
 
 ## 1. Project in one paragraph
 Blindroll is claim-based payroll on NEAR for the NEAR Hackathon (tracks: Real-World Money + Privacy & Private AI). An approver uploads a messy payroll CSV; NEAR AI Cloud (TEE) proposes a column mapping; deterministic code normalizes and runs rules; an attested report is built; approvers sign and fund USDC into a contract that stores only a Merkle root and the report hash; each recipient verifies their wallet, sees only their own row, and claims in their chosen asset/chain (NEAR USDC or 1Click), gas-free. Full specs: `docs/` (start at `docs/README.md`). Rules: `AGENTS.md`.
 
 Deadline: hackathon ends Nov 14, 2026 (confirm the exact time on https://nearhackathon.com). Plan: `docs/12-build-plan.md`.
 
-## 2. Current state (git: 3 local commits, nothing pushed)
+## 2. Current state (git: local commits only, nothing pushed)
 | Commit | What |
 |---|---|
 | `69af86f` | Monorepo scaffold (pnpm; apps/web = Next.js 16 App Router; packages/core; contracts/blindroll; contracts/mock-usdc), Merkle + claim message logic with shared test vectors, Blindroll contract, mock USDC |
 | `5a4fb7c` | `reopen_claim` uses the amount stored per claimed leaf (no amount argument); sandbox tests for failed payout, reopen, pause, reclaim |
-| `4a7cd11` | CSV parse, mapping validation, normalization, rules R001–R006 and R009–R011; `scripts/deploy-testnet.sh` (written, **not run**) |
+| `4a7cd11` | CSV parse, mapping validation, normalization, rules R001–R006 and R009–R011; `scripts/deploy-testnet.sh` |
+| `c66096c` | Root `.env.local` loading + startup check (`@blindroll/core/env`, `pnpm env:check`); model `z-ai/glm-5.3-flash`; HANDOFF.md |
+| (next) | NEAR AI Cloud fixture, mapping client and signature verifier (`packages/core/src/ai/`) |
 
-Tests at last check: `pnpm -r test` 110 passed; `cd contracts && cargo test` 97 Blindroll unit + 5 mock-usdc unit + 2 sandbox passed; clippy clean.
+Tests at last check (2026-11-11): `pnpm -r test` 127 passed; `cd contracts && cargo test` 97 + 5 unit, 2 sandbox passed; typecheck clean.
 
-Nothing in the product is simulated yet.
+Nothing in the product is simulated.
+
+### Testnet deployment (2026-11-11, real)
+`blindroll.blindroll-dev.testnet` (owner `blindroll-dev.testnet`, relayer `relayer.blindroll-dev.testnet`, token `usdc.blindroll-dev.testnet`, not paused). 100,000 mUSDC minted to `blindroll-dev.testnet`.
+| Step | Tx (https://testnet.nearblocks.io/txns/<id>) |
+|---|---|
+| create usdc account | `52183BAH6Dbi7DaSJZ7iz3cceqhB5A4driqhaHmLLgKH` |
+| create blindroll account | `Dso3sXsYot5cK6rKFmrv37t7jKqqGGbSYxWYF9KGjfZf` |
+| deploy + init mock USDC | `DWzeWztdA4VfRDGVGE1vV4ejTrPbrojdLxXF1yEL2bPy` |
+| deploy + init Blindroll | `DS8nXkH1KoqeWvQdoNzaEzARAwCQDLKNwyXQ8A2gPtSj` |
+| storage_deposit for Blindroll | `8irhLTw5RZ3t8mkR5zSoQUEvedzWzoSfsVZK1t7Uf4NK` |
+| mint 100,000 mUSDC | `Focvxuby7K2UbriPpUVAR5zQhoKYmqyWgwQwRccZXwe6` |
+
+### NEAR AI Cloud (2026-11-11, real)
+- The $10 Builders key works for the completion and the signature fetch. One live call made so far (899 tokens).
+- Fixture in `packages/core/test-vectors/ai/`; client + verifier in `packages/core/src/ai/`; details in docs/05 "What the code does today".
+- The real `provider_tee` ECDSA signature verifies. **Intel DCAP quote verification is not done** → reports must say `ai.attestation.verified: false` (docs/05 MVP fallback); list it in the README.
+- Re-record only on purpose: `NEAR_AI_LIVE=1 FORCE=1 pnpm ai:record` (changing the prompt or request format breaks the drift test until re-recorded).
 
 ### Implemented beyond the original spec (all documented in docs/04 / docs/07)
 - Claims store `{ amount, oneclick, settled }` per leaf; `reopen_claim(run_key, leaf_hash_hex)` releases the stored amount, refuses while a payout is in flight, and refuses `near_ft` payouts.
@@ -29,39 +48,40 @@ Nothing in the product is simulated yet.
 - Mock USDC refuses to init/mint unless its account ends in `.testnet`, `.test.near` or `.sandbox`; `assertNetworkConfig` in `packages/core/src/config.ts` must be called by the app and scripts.
 - CSV: no currency column → treated as USDC (must be noted in the report); misplaced thousands separator → invalid amount; unknown chain value → R011. R007/R008 are on the cut list.
 
-## 3. Decisions made by the owner (not yet acted on — do these next)
-1. **Model:** use `z-ai/glm-5.3-flash` (the live API rejects `zai-org/GLM-5.1-FP8` with `x-no-aliasing: true`). Update `docs/05`, `docs/10`, `.env.example`.
-2. **Testnet deploy: approved.** Run `PARENT=blindroll-dev.testnet RELAYER=relayer.blindroll-dev.testnet ./scripts/deploy-testnet.sh` and report transaction links. The owner approves keychain prompts.
-3. **Approvers:** #1 `tushar1962005.testnet` (Meteor wallet, browser; has 5 NEAR). #2 `blindroll-dev.testnet` (CLI). Threshold 2.
-4. **Keep both `reopen_claim` guards.**
-5. **"Proving the refund"** (balance vs liabilities check in `reopen_claim`): don't build now. Revisit Nov 13 only if the MVP works end to end; otherwise list it in the README as a known limitation.
-6. **CSV behaviours approved.** Add "currency defaulted to USDC" to the report when there's no currency column.
+## 3. Decisions made by the owner
+Done: model `z-ai/glm-5.3-flash`; testnet deploy.
+Still to apply:
+1. **Approvers:** #1 `tushar1962005.testnet` (Meteor wallet, browser; has 5 NEAR). #2 `blindroll-dev.testnet` (CLI). Threshold 2.
+2. **Keep both `reopen_claim` guards.**
+3. **"Proving the refund"** (balance vs liabilities check in `reopen_claim`): don't build now. Revisit Nov 13 only if the MVP works end to end; otherwise list it in the README as a known limitation.
+4. **CSV behaviours approved.** Add "currency defaulted to USDC" to the report when there's no currency column (do it in the report builder).
+5. `relayer.blindroll-dev.testnet` already exists (2 NEAR); its key is `RELAYER_PRIVATE_KEY` in the env file. Never add a create step for it.
 
 ## 4. Accounts and environment
 | Item | Value |
 |---|---|
-| Dev/parent account | `blindroll-dev.testnet` (faucet-funded, ~7.99 NEAR; key in the macOS keychain via NEAR CLI) |
-| Contract | `blindroll.blindroll-dev.testnet` (to be created by the deploy script) |
-| Mock USDC | `usdc.blindroll-dev.testnet` (to be created by the deploy script) |
+| Dev/parent account | `blindroll-dev.testnet` (faucet-funded, ~2.7 NEAR left after the deploy; key in the macOS keychain via NEAR CLI) |
+| Contract | `blindroll.blindroll-dev.testnet` (deployed) |
+| Mock USDC | `usdc.blindroll-dev.testnet` (deployed) |
 | Relayer | `relayer.blindroll-dev.testnet` |
 | Approver #1 | `tushar1962005.testnet` (Meteor web wallet) |
 | Approver #2 | `blindroll-dev.testnet` |
 | Tooling | cargo-near 0.23, NEAR CLI 0.31.1 (in `~/.cargo/bin`), Node 24, pnpm, Rust 1.96 (no pin needed) |
 
-**Env file:** all variables from `.env.example` are filled in **one file at the repo root: `near_bulid/.env.local`** (git-ignored, confirmed). It is NOT inside `apps/web`. Make both the Next.js app and `scripts/` load this root file (e.g. `@next/env` `loadEnvConfig` pointed at the repo root). Never print, log or commit values.
+**Env file:** one file at the repo root, `near_bulid/.env.local` (git-ignored). `packages/core/src/env.ts` loads it for the app (`apps/web/next.config.ts`) and for scripts; `pnpm env:check` prints only the names of missing variables (all 16 set on 2026-11-11). Never print, log or commit values. A Claude Code hook blocks shell commands that name the file, so agents cannot read it; use `.env.example` for names.
 
-`NEAR_AI_API_KEY` is the $10 NEAR Builders key. First confirm both the completion and the signature fetch work with it.
+**To confirm with the owner:** `NEAR_AI_MODEL` in `.env.local` was still the old model on 2026-11-11 (the fixture was recorded with the model set on the command line). It must be `z-ai/glm-5.3-flash`.
+
+Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see the root `package.json` scripts).
 
 ## 5. Next steps, in order
-1. Env loading for app + scripts from the root `.env.local`.
-2. Apply decision 1 (model) and the docs updates.
-3. Testnet deploy → send transaction links (NearBlocks).
-4. NEAR AI Cloud: preflight attestation, one mapping call (header + 5 masked rows of `docs/samples/payroll-messy.csv`), signature fetch, save fixtures under `packages/core/test-vectors/ai/`, then build the client and verifier against them. Follow the credit rules in `docs/05`.
-5. Nov 12 plan (`docs/12`): report builder, finalize, approver UI (upload → review → finalize → create/approve/fund), report verify page, claim page (EVM view + options board with 1Click dry quotes).
-6. Nov 13: claim submit via relayer (EVM + NEAR), payout status, refund → reopen path, export, deploy the app.
-7. Nov 14: README (do X → see Y, real vs simulated), 2-minute video, submit.
+1. Nov 12 plan (`docs/12`): report builder (canonical JSON, `ai` block from `AiMappingEvidence`, "currency defaulted to USDC" note), finalize (salts, leaves, root, `table_sha256`), approver UI (upload → review → finalize → create/approve/fund), report verify page, claim page (EVM view + options board with 1Click dry quotes).
+2. App-level AI wiring: `NEAR_AI_LIVE` gate and cache by `csv_sha256` around `requestColumnMapping`.
+3. Nov 13: claim submit via relayer (EVM + NEAR), payout status, refund → reopen path, export, deploy the app.
+4. Nov 14: README (do X → see Y, real vs simulated, known limitations incl. attestation), 2-minute video, submit.
 
 ## 6. Open risks / known gaps
+- AI attestation: only the signature and the nonce/signer binding fields are checked; no Intel DCAP quote verification (see docs/05).
 - `reopen_claim` trusts that 1Click really refunded (see docs/04 "Open issue: proving the refund").
 - 1Click has no testnet: on testnet, cross-chain delivery will need a SIMULATION REQUEST to the owner before building it (dry quotes are real).
 - 1Click quote response schema not yet confirmed with a real call.
