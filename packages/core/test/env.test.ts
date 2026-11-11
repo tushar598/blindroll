@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { EnvError, REQUIRED_ENV, findRepoRoot, loadAndCheckEnv, missingEnv } from "../src/env.js";
+import { EnvError, REQUIRED_ENV, findRepoRoot, loadAndCheckEnv, missingEnv } from "../src/env.ts";
 
 const full = (): Record<string, string> => Object.fromEntries(REQUIRED_ENV.map((n) => [n, "x"]));
 

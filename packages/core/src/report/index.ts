@@ -1,3 +1,3 @@
-export * from "./review.js";
-export * from "./finalize.js";
-export * from "./report.js";
+export * from "./review.ts";
+export * from "./finalize.ts";
+export * from "./report.ts";

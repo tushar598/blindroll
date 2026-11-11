@@ -1,9 +1,9 @@
 import canonicalize from "canonicalize";
-import { bytesToHex, compareBytes, hexToBytes, sha256, utf8ToBytes } from "../hash.js";
-import { type Chain, type Leaf, leafHash } from "../merkle/leaf.js";
-import { buildTree, getProof } from "../merkle/tree.js";
-import { SALT_HEX_RE, ValidationError, amountToString, assertRunKey } from "../validate.js";
-import type { Review } from "./review.js";
+import { bytesToHex, compareBytes, hexToBytes, sha256, utf8ToBytes } from "../hash.ts";
+import { type Chain, type Leaf, leafHash } from "../merkle/leaf.ts";
+import { buildTree, getProof } from "../merkle/tree.ts";
+import { SALT_HEX_RE, ValidationError, amountToString, assertRunKey } from "../validate.ts";
+import type { Review } from "./review.ts";
 
 /** RFC 8785 canonical JSON. Report and table hashes are sha256 over these bytes. */
 export function canonicalJson(value: unknown): string {

@@ -1,11 +1,11 @@
-import type { AiMappingEvidence } from "../ai/client.js";
-import type { Network } from "../config.js";
-import { bytesToHex, sha256, utf8ToBytes } from "../hash.js";
-import { LEAF_PREFIX } from "../merkle/leaf.js";
-import { RULES_VERSION } from "../rules/index.js";
-import { ValidationError, amountToString, assertNearAccountId } from "../validate.js";
-import { type FinalizedRun, canonicalJson, sha256HexOfJson } from "./finalize.js";
-import type { Review, RowEdit } from "./review.js";
+import type { AiMappingEvidence } from "../ai/client.ts";
+import type { Network } from "../config.ts";
+import { bytesToHex, sha256, utf8ToBytes } from "../hash.ts";
+import { LEAF_PREFIX } from "../merkle/leaf.ts";
+import { RULES_VERSION } from "../rules/index.ts";
+import { ValidationError, amountToString, assertNearAccountId } from "../validate.ts";
+import { type FinalizedRun, canonicalJson, sha256HexOfJson } from "./finalize.ts";
+import type { Review, RowEdit } from "./review.ts";
 
 export const REPORT_SCHEMA = "blindroll.report.v1";
 export const NOTE_CURRENCY_DEFAULTED = "currency defaulted to USDC";

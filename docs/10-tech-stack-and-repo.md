@@ -7,7 +7,7 @@
 | Contract | Rust, `near-sdk` 5.x, `cargo-near` | Standard NEAR toolchain; has `env::ecrecover`, `env::ed25519_verify`, `env::keccak256`, `env::sha256` |
 | Contract tests | Rust unit tests + `near-workspaces` 0.24 (sandbox) | Real cross-contract calls with a mock USDC. The sandbox test builds both wasm files with `cargo near build` first |
 | Web + API | Next.js (App Router), TypeScript (strict), Tailwind CSS | One deployable for UI and backend |
-| NEAR client | `near-api-js` (or the `@near-js/*` packages) + `@near-wallet-selector/*` | RPC, transactions, delegate actions, wallet connect |
+| NEAR client | `@near-wallet-selector/core` + `meteor-wallet` in the browser; plain JSON-RPC `fetch` on the server | Wallet connect, NEP-413 sign-in, transactions; view calls need no SDK. Only Meteor is wired (the approver's wallet). `near-api-js` comes in with the relayer |
 | EVM wallet | `wagmi` + `viem` | `personal_sign`, `verifyMessage` |
 | Solana (stretch) | `@solana/wallet-adapter-*`, `tweetnacl`, `bs58` | |
 | AI | `openai` SDK pointed at `https://cloud-api.near.ai/v1` | NEAR AI Cloud is OpenAI-compatible; use raw `fetch` where raw bytes are needed for signatures |
@@ -79,6 +79,9 @@ APP_URL=http://localhost:3000
 ```
 
 ## Conventions
+
+- Relative imports inside `packages/core` use the real `.ts` extension (`allowImportingTsExtensions`), because the Next.js bundler does not map `.js` to `.ts` for workspace sources. `vitest`, `tsx` and Node handle it.
+- `apps/web`: server code in `lib/server/` (services take the database as an argument, so `vitest` runs them against `:memory:`), browser code in `lib/client/`, route handlers in `app/api/` wrapped by `handle()` in `lib/server/http.ts`. Read `apps/web/AGENTS.md` before touching Next.js code: this Next.js version differs from older ones.
 
 - TypeScript `strict: true`; no `any` in `packages/core`.
 - All amounts are `bigint` base units in TS and `u128` in Rust; strings at API boundaries.

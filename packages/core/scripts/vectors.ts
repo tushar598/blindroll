@@ -7,10 +7,10 @@
  * They are test fixtures, not secrets, and must never hold real funds.
  */
 import { privateKeyToAccount } from "viem/accounts";
-import { buildClaimMessage, eip191HashHex, type ClaimMessageInput } from "../src/claims/message.js";
-import { bytesToHex, sha256, utf8ToBytes } from "../src/hash.js";
-import { type Leaf, leafHashHex, leafPreimage, leafToJson } from "../src/merkle/leaf.js";
-import { buildTreeFromLeaves, getProof } from "../src/merkle/tree.js";
+import { buildClaimMessage, eip191HashHex, type ClaimMessageInput } from "../src/claims/message.ts";
+import { bytesToHex, sha256, utf8ToBytes } from "../src/hash.ts";
+import { type Leaf, leafHashHex, leafPreimage, leafToJson } from "../src/merkle/leaf.ts";
+import { buildTreeFromLeaves, getProof } from "../src/merkle/tree.ts";
 
 const TEST_KEY_0 = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const TEST_KEY_1 = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";

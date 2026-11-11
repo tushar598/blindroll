@@ -1,6 +1,6 @@
-import { formatUsdc } from "../csv/amount.js";
-import type { Finding, NormalizedRow } from "../csv/normalize.js";
-import type { Chain } from "../merkle/leaf.js";
+import { formatUsdc } from "../csv/amount.ts";
+import type { Finding, NormalizedRow } from "../csv/normalize.ts";
+import type { Chain } from "../merkle/leaf.ts";
 
 export const RULES_VERSION = "rules-v1";
 export const OUTLIER_MULTIPLE = 5n;

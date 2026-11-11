@@ -1,4 +1,4 @@
-import { bytesToHex, concatBytes, keccak256, utf8ToBytes } from "../hash.js";
+import { bytesToHex, concatBytes, keccak256, utf8ToBytes } from "../hash.ts";
 import {
   U64_MAX,
   ValidationError,
@@ -6,7 +6,7 @@ import {
   assertMessageField,
   assertNearAccountId,
   assertRunKey,
-} from "../validate.js";
+} from "../validate.ts";
 
 export const PAYOUT_KINDS = ["near_ft", "oneclick"] as const;
 export type PayoutKind = (typeof PAYOUT_KINDS)[number];

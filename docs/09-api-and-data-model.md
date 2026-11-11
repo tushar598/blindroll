@@ -17,17 +17,24 @@ Backend = Next.js API routes in `apps/web/app/api/`. JSON in and out. Every resp
 | GET | `/api/auth/nonce` | Returns a one-time nonce (5 min) |
 | POST | `/api/auth/near` | `{accountId, publicKey, signature, message, nonce}` → approver session |
 | POST | `/api/auth/logout` | |
+| GET | `/api/auth/me` | `{accountId | null, network, contractId, tokenId, aiLive, org}` for the UI |
+
+Sign-in details as built: the nonce is 32 random bytes (base64); the signed message is `"Sign in to Blindroll as an approver"`, recipient `"blindroll"`, no callback URL; the key must be a **full-access** key of the account; the account must be an approver of an org. Cookie-authenticated writes are refused when the `Origin` header is another site.
 
 ### Runs (approver session)
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/api/runs` | multipart CSV upload + `{name, orgId}` → `{runKey}`; starts AI mapping |
-| GET | `/api/runs/:runKey` | Run, rows (decrypted), findings, overrides, status |
-| PATCH | `/api/runs/:runKey/rows/:rowId` | Edit a row (logged) |
-| POST | `/api/runs/:runKey/overrides` | `{findingId, reason}` accept a warning |
+| GET | `/api/runs` | Runs of the approver's orgs |
+| POST | `/api/runs` | multipart `file` (CSV) + `name` + `orgId` → `{runKey, mapping}` where `mapping` is `cached` (same `csv_sha256` mapped before), `live` (one NEAR AI Cloud call, only when `NEAR_AI_LIVE=1`), `ai_off` or `ai_failed` (the last two → status `needs_mapping`) |
+| GET | `/api/runs/:runKey` | Run, rows (decrypted), findings, edits, summary, finalized values, last on-chain view |
+| PUT | `/api/runs/:runKey/mapping` | Manual column mapping (same JSON shape as the AI output); clears edits and overrides |
+| POST | `/api/runs/:runKey/edits` | `{kind:"set", rowNumber, column, value}` or `{kind:"remove", rowNumber, reason}` (logged; replaces `PATCH …/rows/:rowId`, because edits are applied to the uploaded cells and the whole table is re-checked) |
+| POST | `/api/runs/:runKey/overrides` | `{findingId, reason}` accept a warning; `findingId` = `<rule_id>:<rowNumber | "run">` |
 | POST | `/api/runs/:runKey/finalize` | Locks rows, builds leaves, Merkle root and report → `{merkleRoot, reportHash, totalAmount, recipientCount}` |
-| GET | `/api/runs/:runKey/create-args` | Exact arguments for `create_run` (the approver's wallet signs it) |
-| POST | `/api/runs/:runKey/sync` | Reads on-chain run state and updates the DB |
+| GET | `/api/runs/:runKey/create-args` | `{contractId, args, depositYocto}`: exact arguments for `create_run` (the approver's wallet signs it) and the storage deposit to attach (0.05 NEAR + 0.00225 NEAR per recipient; the contract refunds the unused part) |
+| POST | `/api/runs/:runKey/sync` | Reads `get_run` from the contract and updates the DB; refuses (`409 chain_mismatch`) if the on-chain run has another Merkle root or report hash |
+
+Run `status`: `needs_mapping` → `review` → `finalized` → then the on-chain status in lowercase (`draft`, `approved`, `active`, `closed`, `cancelled`). `finalize` body: `{claimDays}` (1–365, default 14).
 | GET | `/api/runs/:runKey/export?format=csv|json` | Reconciled export |
 
 ### Report (public read)
@@ -82,6 +89,15 @@ payouts(id, claim_id, rail, deposit_address, oneclick_status,
 audit_log(id, actor, action, run_id, data_json, created_at)
 nonces(nonce, purpose, expires_at, used)
 ```
+
+Differences in the built schema (`apps/web/lib/server/db.ts`; tables are created at startup, no migration tool):
+- `orgs` also has `threshold` and `refund_account`; `org_approvers` has `position` (the approver order used in `create_run`). The demo org is seeded from `DEMO_ORG` in `lib/server/config.ts`.
+- `runs` also has `enc_csv` (the uploaded file, AES-256-GCM), `enc_mapping`, `mapping_source` (`ai` | `manual`), `ai_call_id`, `report_json` (the canonical report), `chain_json` (last on-chain view).
+- `findings` is not a table: findings are recomputed from the CSV, mapping, edits and overrides (`reviewRun`), so they cannot go stale.
+- `row_edits(id, run_id, by_account, enc_edit, created_at)`: the ordered, encrypted edit log. `overrides(run_id, rule_id, row_number, by_account, enc_reason, created_at)`, unique per finding.
+- `ai_calls` is keyed by `csv_sha256` (the cache): `enc_evidence` holds the request body, raw response bytes, signature and checks; `attestation_json` holds the raw preflight report.
+- `run_rows` are written at finalize, ordered by leaf hash.
+- Database file: `<repo root>/data/blindroll.sqlite` (git-ignored); `BLINDROLL_DB_FILE` overrides it for tests.
 
 - `chain`, `address`, `amount` are stored in plaintext because they're needed for lookups and proofs. Everything identifying (names, emails, memos) goes in `enc_payload`.
 - Encryption key: `DATA_ENCRYPTION_KEY` (32 bytes, base64) from the environment.

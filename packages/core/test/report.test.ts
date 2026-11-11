@@ -17,8 +17,8 @@ import {
   reviewRun,
   verifyAiSignature,
   verifyProof,
-} from "../src/index.js";
-import { hexToBytes } from "../src/hash.js";
+} from "../src/index.ts";
+import { hexToBytes } from "../src/hash.ts";
 
 const csvBytes = new Uint8Array(readFileSync(new URL("../../../docs/samples/payroll-messy.csv", import.meta.url)));
 const csv = parseCsv(csvBytes);

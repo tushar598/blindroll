@@ -11,7 +11,7 @@ import {
   parseMappingContent,
   requestColumnMapping,
   verifyAiSignature,
-} from "../src/index.js";
+} from "../src/index.ts";
 
 const dir = new URL("../test-vectors/ai/", import.meta.url);
 const fixture = JSON.parse(readFileSync(new URL("mapping-fixture.json", dir), "utf8"));

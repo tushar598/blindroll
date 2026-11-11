@@ -14,8 +14,8 @@ import {
   leafPreimage,
   parseAmount,
   verifyProof,
-} from "../src/index.js";
-import { bytesToHex, hexToBytes } from "../src/hash.js";
+} from "../src/index.ts";
+import { bytesToHex, hexToBytes } from "../src/hash.ts";
 import vectors from "../test-vectors/merkle.json" with { type: "json" };
 
 /** Independent sha256 (node:crypto, not @noble) so the vectors are not self-referential. */

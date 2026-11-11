@@ -1,8 +1,8 @@
-import type { ColumnMapping } from "../csv/mapping.js";
-import { type Finding, type NormalizedRow, normalizeRows } from "../csv/normalize.js";
-import type { ParsedCsv } from "../csv/parse.js";
-import { DEFAULT_RULE_CONTEXT, type RuleContext, runRules, sortFindings } from "../rules/index.js";
-import { ValidationError } from "../validate.js";
+import type { ColumnMapping } from "../csv/mapping.ts";
+import { type Finding, type NormalizedRow, normalizeRows } from "../csv/normalize.ts";
+import type { ParsedCsv } from "../csv/parse.ts";
+import { DEFAULT_RULE_CONTEXT, type RuleContext, runRules, sortFindings } from "../rules/index.ts";
+import { ValidationError } from "../validate.ts";
 
 /**
  * An approver's change to the uploaded table. Edits are applied to the raw cells, then the whole

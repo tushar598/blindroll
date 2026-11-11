@@ -13,3 +13,5 @@ target/
 *.sqlite
 *.sqlite-journal
 .near-credentials/
+# local database
+data/

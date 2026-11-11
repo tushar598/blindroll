@@ -1,8 +1,8 @@
-import { CHAINS, type Chain } from "../merkle/leaf.js";
-import { inferChain, normalizeAddress } from "./address.js";
-import { parseAmountCell } from "./amount.js";
-import type { ColumnMapping } from "./mapping.js";
-import type { ParsedCsv } from "./parse.js";
+import { CHAINS, type Chain } from "../merkle/leaf.ts";
+import { inferChain, normalizeAddress } from "./address.ts";
+import { parseAmountCell } from "./amount.ts";
+import type { ColumnMapping } from "./mapping.ts";
+import type { ParsedCsv } from "./parse.ts";
 
 export type Severity = "error" | "warning";
 

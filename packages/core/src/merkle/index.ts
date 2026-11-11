@@ -1,2 +1,2 @@
-export * from "./leaf.js";
-export * from "./tree.js";
+export * from "./leaf.ts";
+export * from "./tree.ts";

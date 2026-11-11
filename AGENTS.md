@@ -24,7 +24,8 @@ Blindroll is claim-based payroll on NEAR for the NEAR Hackathon (Real-World Mone
 ## Commands
 ```
 pnpm install
-pnpm -r test                                  # vitest (packages/core)
+pnpm -r test                                  # vitest (packages/core and apps/web)
+pnpm env:check                                # root .env.local: prints only the names of missing variables
 pnpm -r typecheck
 pnpm vectors                                  # regenerate packages/core/test-vectors/*.json after a format change
 pnpm --filter web dev

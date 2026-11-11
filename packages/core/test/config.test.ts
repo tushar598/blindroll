@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ValidationError, assertNetworkConfig, isTestNetworkAccount } from "../src/index.js";
+import { ValidationError, assertNetworkConfig, isTestNetworkAccount } from "../src/index.ts";
 
 describe("network config guard", () => {
   it("accepts testnet and sandbox setups with the mock token", () => {

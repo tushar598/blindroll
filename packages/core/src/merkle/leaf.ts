@@ -1,4 +1,4 @@
-import { bytesToHex, sha256, utf8ToBytes } from "../hash.js";
+import { bytesToHex, sha256, utf8ToBytes } from "../hash.ts";
 import {
   EVM_ADDRESS_RE,
   SALT_HEX_RE,
@@ -7,7 +7,7 @@ import {
   amountToString,
   assertRunKey,
   isNearAccountId,
-} from "../validate.js";
+} from "../validate.ts";
 
 export const LEAF_PREFIX = "blindroll:leaf:v1";
 export const CHAINS = ["near", "evm", "solana"] as const;

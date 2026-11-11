@@ -1,5 +1,5 @@
-import type { ParsedCsv } from "../csv/parse.js";
-import { MAPPING_SYSTEM_PROMPT } from "./prompts.js";
+import type { ParsedCsv } from "../csv/parse.ts";
+import { MAPPING_SYSTEM_PROMPT } from "./prompts.ts";
 
 /** Sample rows sent to the model: the header plus at most this many data rows (docs/05). */
 export const MAX_SAMPLE_ROWS = 5;

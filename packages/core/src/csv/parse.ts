@@ -1,6 +1,6 @@
 import Papa from "papaparse";
-import { bytesToHex, sha256 } from "../hash.js";
-import { ValidationError } from "../validate.js";
+import { bytesToHex, sha256 } from "../hash.ts";
+import { ValidationError } from "../validate.ts";
 
 export const MAX_CSV_BYTES = 2 * 1024 * 1024;
 export const MAX_CSV_ROWS = 5000;

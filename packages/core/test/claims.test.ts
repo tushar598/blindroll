@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hashMessage, recoverMessageAddress, verifyMessage } from "viem";
-import { type PayoutKind, ValidationError, buildClaimMessage, buildViewMessage, eip191HashHex } from "../src/index.js";
+import { type PayoutKind, ValidationError, buildClaimMessage, buildViewMessage, eip191HashHex } from "../src/index.ts";
 import vectors from "../test-vectors/claim-message.json" with { type: "json" };
 import merkle from "../test-vectors/merkle.json" with { type: "json" };
 

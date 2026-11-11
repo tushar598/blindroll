@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ValidationError } from "../validate.js";
+import { ValidationError } from "../validate.ts";
 
 export const MAPPING_FIELDS = ["name", "chain", "address", "amount", "currency", "role", "memo", "email"] as const;
 export type MappingField = (typeof MAPPING_FIELDS)[number];

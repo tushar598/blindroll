@@ -1,6 +1,6 @@
-import { bytesToHex, compareBytes, concatBytes, hexToBytes, sha256 } from "../hash.js";
-import { HASH_HEX_RE, ValidationError } from "../validate.js";
-import { type Leaf, leafHash } from "./leaf.js";
+import { bytesToHex, compareBytes, concatBytes, hexToBytes, sha256 } from "../hash.ts";
+import { HASH_HEX_RE, ValidationError } from "../validate.ts";
+import { type Leaf, leafHash } from "./leaf.ts";
 
 /** Proofs longer than this are rejected (the contract applies the same cap). */
 export const MAX_PROOF_LEN = 32;

@@ -1,8 +1,8 @@
-import { type ColumnMapping, validateMapping } from "../csv/mapping.js";
-import type { ParsedCsv } from "../csv/parse.js";
-import { bytesToHex, sha256, utf8ToBytes } from "../hash.js";
-import { ValidationError } from "../validate.js";
-import { buildMappingRequestBody } from "./request.js";
+import { type ColumnMapping, validateMapping } from "../csv/mapping.ts";
+import type { ParsedCsv } from "../csv/parse.ts";
+import { bytesToHex, sha256, utf8ToBytes } from "../hash.ts";
+import { ValidationError } from "../validate.ts";
+import { buildMappingRequestBody } from "./request.ts";
 import {
   type AiSignature,
   type AttestationCheck,
@@ -10,7 +10,7 @@ import {
   type SignatureCheck,
   checkPreflightAttestation,
   verifyAiSignature,
-} from "./verify.js";
+} from "./verify.ts";
 
 export const SIGNING_ALGO = "ecdsa";
 /** One retry at most on a bad mapping (docs/05 credit rules). */

@@ -1,4 +1,4 @@
-import { U128_MAX } from "../validate.js";
+import { U128_MAX } from "../validate.ts";
 
 export const USDC_DECIMALS = 6;
 

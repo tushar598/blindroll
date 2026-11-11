@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { generateClaimVectors, generateMerkleVectors, toJson } from "../scripts/vectors.js";
+import { generateClaimVectors, generateMerkleVectors, toJson } from "../scripts/vectors.ts";
 
 const read = (name: string) => readFileSync(new URL(`../test-vectors/${name}`, import.meta.url), "utf8");
 

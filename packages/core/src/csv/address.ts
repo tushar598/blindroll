@@ -1,6 +1,6 @@
-import { bytesToHex, keccak256, utf8ToBytes } from "../hash.js";
-import type { Chain } from "../merkle/leaf.js";
-import { isNearAccountId } from "../validate.js";
+import { bytesToHex, keccak256, utf8ToBytes } from "../hash.ts";
+import type { Chain } from "../merkle/leaf.ts";
+import { isNearAccountId } from "../validate.ts";
 
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 

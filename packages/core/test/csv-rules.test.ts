@@ -15,7 +15,7 @@ import {
   runRules,
   sortFindings,
   validateMapping,
-} from "../src/index.js";
+} from "../src/index.ts";
 import vectors from "../test-vectors/merkle.json" with { type: "json" };
 
 const sampleBytes = new Uint8Array(readFileSync(new URL("../../../docs/samples/payroll-messy.csv", import.meta.url)));

@@ -1,4 +1,4 @@
-import { ValidationError, isNearAccountId } from "./validate.js";
+import { ValidationError, isNearAccountId } from "./validate.ts";
 
 export const NETWORKS = ["testnet", "mainnet", "sandbox"] as const;
 export type Network = (typeof NETWORKS)[number];

@@ -1,6 +1,6 @@
 # HANDOFF — read this first in every new session
 
-Last updated: 2026-11-11 (after the testnet deploy and the NEAR AI Cloud fixture). Update this file at the end of every work session.
+Last updated: 2026-11-11 (after the report builder, finalize, approver backend and approver UI). Update this file at the end of every work session.
 
 ## 1. Project in one paragraph
 Blindroll is claim-based payroll on NEAR for the NEAR Hackathon (tracks: Real-World Money + Privacy & Private AI). An approver uploads a messy payroll CSV; NEAR AI Cloud (TEE) proposes a column mapping; deterministic code normalizes and runs rules; an attested report is built; approvers sign and fund USDC into a contract that stores only a Merkle root and the report hash; each recipient verifies their wallet, sees only their own row, and claims in their chosen asset/chain (NEAR USDC or 1Click), gas-free. Full specs: `docs/` (start at `docs/README.md`). Rules: `AGENTS.md`.
@@ -14,11 +14,20 @@ Deadline: hackathon ends Nov 14, 2026 (confirm the exact time on https://nearhac
 | `5a4fb7c` | `reopen_claim` uses the amount stored per claimed leaf (no amount argument); sandbox tests for failed payout, reopen, pause, reclaim |
 | `4a7cd11` | CSV parse, mapping validation, normalization, rules R001–R006 and R009–R011; `scripts/deploy-testnet.sh` |
 | `c66096c` | Root `.env.local` loading + startup check (`@blindroll/core/env`, `pnpm env:check`); model `z-ai/glm-5.3-flash`; HANDOFF.md |
-| (next) | NEAR AI Cloud fixture, mapping client and signature verifier (`packages/core/src/ai/`) |
+| `483000a` | NEAR AI Cloud fixture, mapping client and signature verifier (`packages/core/src/ai/`) |
+| `9a0d833` | Report builder, review and finalize (`packages/core/src/report/`) |
+| (latest) | Approver backend (SQLite, NEP-413 sign-in, run API) and approver UI in `apps/web` |
 
-Tests at last check (2026-11-11): `pnpm -r test` 127 passed; `cd contracts && cargo test` 97 + 5 unit, 2 sandbox passed; typecheck clean.
+Tests at last check (2026-11-11): `pnpm -r test` 143 (core) + 14 (web) passed; `pnpm -r typecheck`, `pnpm --filter web lint` and `pnpm --filter web build` clean; `cargo test` 97 + 5 unit, 2 sandbox passed (last run inside the deploy script; contracts unchanged since).
 
 Nothing in the product is simulated.
+
+### Approver app (2026-11-11)
+- Flow built: sign in (Meteor, NEP-413) → upload CSV → column mapping (cache → live AI when `NEAR_AI_LIVE=1` → manual form) → review table (edit, remove with reason, accept warnings with reason) → finalize → `create_run` / `approve_run` / fund, each from the wallet or with a copyable NEAR CLI command → "Refresh on-chain status".
+- **Verified:** the whole API flow over HTTP against the built app with a locally minted session and a throwaway database, including the real RPC `get_run` view call.
+- **NOT yet verified (needs the owner's browser + Meteor wallet):** the wallet sign-in, and `create_run` / `approve_run` sent from the wallet. If Meteor signs NEP-413 with a key that is not a full-access key, sign-in returns `key_not_owned`; then relax `isFullAccessKey` in `lib/server/rpc.ts` after checking what key it used.
+- Run it: `pnpm --filter web dev`, open http://localhost:3000. `NEAR_AI_LIVE` is `0` in the env file, so a first upload of a file asks for a manual mapping; set `NEAR_AI_LIVE=1` to make one real mapping call per new file (cached by CSV hash afterwards).
+- Not built yet: report verify page, claim page, export.
 
 ### Testnet deployment (2026-11-11, real)
 `blindroll.blindroll-dev.testnet` (owner `blindroll-dev.testnet`, relayer `relayer.blindroll-dev.testnet`, token `usdc.blindroll-dev.testnet`, not paused). 100,000 mUSDC minted to `blindroll-dev.testnet`.
@@ -50,8 +59,9 @@ Nothing in the product is simulated.
 
 ## 3. Decisions made by the owner
 Done: model `z-ai/glm-5.3-flash`; testnet deploy.
+Done as well: approvers and threshold (seeded as `DEMO_ORG` in `apps/web/lib/server/config.ts`); "currency defaulted to USDC" report note; attestation fallback agreed (`ai.attestation.verified: false`, raw attestation stored, README limitation; revisit only if the MVP is done with time left).
 Still to apply:
-1. **Approvers:** #1 `tushar1962005.testnet` (Meteor wallet, browser; has 5 NEAR). #2 `blindroll-dev.testnet` (CLI). Threshold 2.
+1. **Approvers:** #1 `tushar1962005.testnet` (Meteor wallet, browser; has 5 NEAR). #2 `blindroll-dev.testnet` (CLI). Threshold 2. (Seeded; #2 approves and funds with the CLI commands the UI shows.)
 2. **Keep both `reopen_claim` guards.**
 3. **"Proving the refund"** (balance vs liabilities check in `reopen_claim`): don't build now. Revisit Nov 13 only if the MVP works end to end; otherwise list it in the README as a known limitation.
 4. **CSV behaviours approved.** Add "currency defaulted to USDC" to the report when there's no currency column (do it in the report builder).
@@ -70,15 +80,13 @@ Still to apply:
 
 **Env file:** one file at the repo root, `near_bulid/.env.local` (git-ignored). `packages/core/src/env.ts` loads it for the app (`apps/web/next.config.ts`) and for scripts; `pnpm env:check` prints only the names of missing variables (all 16 set on 2026-11-11). Never print, log or commit values. A Claude Code hook blocks shell commands that name the file, so agents cannot read it; use `.env.example` for names.
 
-**To confirm with the owner:** `NEAR_AI_MODEL` in `.env.local` was still the old model on 2026-11-11 (the fixture was recorded with the model set on the command line). It must be `z-ai/glm-5.3-flash`.
-
 Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see the root `package.json` scripts).
 
 ## 5. Next steps, in order
-1. Nov 12 plan (`docs/12`): report builder (canonical JSON, `ai` block from `AiMappingEvidence`, "currency defaulted to USDC" note), finalize (salts, leaves, root, `table_sha256`), approver UI (upload → review → finalize → create/approve/fund), report verify page, claim page (EVM view + options board with 1Click dry quotes).
-2. App-level AI wiring: `NEAR_AI_LIVE` gate and cache by `csv_sha256` around `requestColumnMapping`.
-3. Nov 13: claim submit via relayer (EVM + NEAR), payout status, refund → reopen path, export, deploy the app.
-4. Nov 14: README (do X → see Y, real vs simulated, known limitations incl. attestation), 2-minute video, submit.
+1. Owner tests the approver flow in the browser (see "Approver app" above); fix whatever the wallet shows.
+2. Rest of the Nov 12 plan (`docs/12`): report verify page (`/runs/<run_key>/report`: recompute the hash, compare with the contract, re-verify the AI signature), claim page (EVM view + options board with 1Click dry quotes).
+3. Nov 13: claim submit via relayer (EVM + NEAR), payout status, refund → reopen path, export, deploy the app. SQLite on a serverless host does not persist: pick a host with a disk, or decide on another database first.
+4. Nov 14: README (do X → see Y, real vs simulated, known limitations incl. attestation and "proving the refund"), 2-minute video, submit.
 
 ## 6. Open risks / known gaps
 - AI attestation: only the signature and the nonce/signer binding fields are checked; no Intel DCAP quote verification (see docs/05).

@@ -1,5 +1,5 @@
 import { recoverMessageAddress } from "viem";
-import { bytesToHex, hexToBytes, sha256 } from "../hash.js";
+import { bytesToHex, hexToBytes, sha256 } from "../hash.ts";
 
 /** Body of GET /v1/signature/<chat_id> (field names confirmed against the recorded fixture). */
 export interface AiSignature {
