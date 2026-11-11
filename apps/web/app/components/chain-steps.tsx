@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
 import type { RunView } from "@/lib/client/types";
 import { callContract, explorerAccount, explorerTx } from "@/lib/client/wallet";
@@ -29,6 +29,25 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
     await api(`/api/runs/${run.runKey}/sync`, { json: createTx ? { createTx } : {} });
     await onChanged();
   }
+
+  // Other approvers act from the CLI, so the page re-reads the contract by itself every few
+  // seconds until the run is fully funded (or closed/cancelled).
+  const waiting = !chain || ["draft", "approved"].includes(chain.status.toLowerCase());
+  const busyRef = useRef(false);
+  useEffect(() => {
+    busyRef.current = busy !== null;
+  }, [busy]);
+  const { runKey } = run;
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setInterval(() => {
+      if (busyRef.current || document.visibilityState !== "visible") return;
+      api(`/api/runs/${runKey}/sync`, { json: {} })
+        .then(() => onChanged())
+        .catch(() => undefined); // the manual button shows errors
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [waiting, runKey, onChanged]);
 
   async function act(name: string, fn: () => Promise<string | null>, isCreate = false) {
     setBusy(name);
@@ -162,7 +181,7 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
         <button className="btn-quiet" onClick={() => void act("sync", async () => null)} disabled={busy !== null}>
           {busy === "sync" ? "Reading the contract…" : "Refresh on-chain status"}
         </button>
-        <span className="text-xs text-muted">Reads the run from the contract. Use it after a CLI transaction.</span>
+        <span className="text-xs text-muted">{waiting ? "The page also re-reads the contract every 5 seconds while it waits for approvals or funds." : "Reads the run from the contract."}</span>
       </div>
     </div>
   );
