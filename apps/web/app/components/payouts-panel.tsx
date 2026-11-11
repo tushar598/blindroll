@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
 import type { RunView } from "@/lib/client/types";
 import { callContract, explorerTx } from "@/lib/client/wallet";
+import { useSession } from "./session";
 
 interface Payout {
   claimId: number;
@@ -35,6 +36,7 @@ const OPTION_LABELS: Record<string, string> = { "near-usdc": "USDC on NEAR", "on
 
 /** Claims made so far. For simulated cross-chain payouts: refund (a real transfer back) → reopen. */
 export function PayoutsPanel({ run }: { run: RunView }) {
+  const { me } = useSession();
   const [payouts, setPayouts] = useState<Payout[] | null>(null);
   const [simSink, setSimSink] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -72,7 +74,8 @@ export function PayoutsPanel({ run }: { run: RunView }) {
   const reopen = (p: Payout) =>
     act(`reopen-${p.claimId}`, async () => {
       const call = await api<ReopenCall>(`/api/runs/${run.runKey}/payouts/${p.claimId}/reopen`);
-      const { txHash } = await callContract(run.network, { receiverId: call.contractId, methodName: call.methodName, args: call.args, gasTgas: call.gasTgas, depositYocto: call.depositYocto });
+      if (!me?.accountId) throw new Error("Sign in as an approver first");
+      const { txHash } = await callContract(run.network, { signerId: me.accountId, receiverId: call.contractId, methodName: call.methodName, args: call.args, gasTgas: call.gasTgas, depositYocto: call.depositYocto });
       await api(`/api/runs/${run.runKey}/payouts/${p.claimId}/reopen`, { json: { txHash } });
     });
 

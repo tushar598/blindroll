@@ -15,3 +15,5 @@ target/
 .near-credentials/
 # local database
 data/
+# personal test files (contain real wallet addresses)
+docs/samples/my-*.csv

@@ -68,6 +68,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
+      // Forget the wallet connection, so the next try asks which account to use (the remembered
+      // one may be a recipient's account from the claim page, or one this wallet no longer has).
+      await disconnectWallet(me.network);
     } finally {
       setBusy(false);
     }

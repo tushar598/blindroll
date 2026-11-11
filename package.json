@@ -10,6 +10,7 @@
     "env:check": "pnpm --filter @blindroll/core exec tsx ../../scripts/check-env.mts",
     "ai:record": "pnpm --filter @blindroll/core exec tsx ../../scripts/record-ai-fixture.mts",
     "oneclick:record": "pnpm --filter @blindroll/core exec tsx ../../scripts/record-oneclick-fixture.mts",
-    "relayer:check": "pnpm --filter @blindroll/core exec tsx ../../scripts/relayer-check.mts"
+    "relayer:check": "pnpm --filter @blindroll/core exec tsx ../../scripts/relayer-check.mts",
+    "simsink:check": "pnpm --filter @blindroll/core exec tsx ../../scripts/sim-sink-check.mts"
   }
 }

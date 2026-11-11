@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { buildViewMessage } from "@blindroll/core";
 import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { type EvmWallet, connectEvm, discoverEvmWallets, personalSign } from "@/lib/client/evm";
-import { callContract, connectWallet, explorerTx, signInMessage } from "@/lib/client/wallet";
+import { callContract, connectWallet, currentWalletAccount, disconnectWallet, explorerTx, isWalletAccountError, signInMessage } from "@/lib/client/wallet";
 import { SimulatedBadge } from "./payouts-panel";
 
 interface RunInfo {
@@ -87,6 +87,8 @@ export function ClaimScreen() {
   const [loadedAt, setLoadedAt] = useState(0);
   const [evmWallets, setEvmWallets] = useState<EvmWallet[] | null>(null);
   const [signer, setSigner] = useState<Signer | null>(null);
+  /** The NEAR account Meteor remembers for this site (it may be left over from another page). */
+  const [rememberedNear, setRememberedNear] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [row, setRow] = useState<Row | null>(null);
   const [notListed, setNotListed] = useState(false);
@@ -104,6 +106,7 @@ export function ClaimScreen() {
         if (!live) return;
         setInfo(r);
         setLoadedAt(Date.now());
+        return currentWalletAccount(r.network).then((a) => live && setRememberedNear(a));
       })
       .catch((err) => live && setLoadError(errorMessage(err)));
     discoverEvmWallets().then((w) => live && setEvmWallets(w));
@@ -126,14 +129,55 @@ export function ClaimScreen() {
   }
 
   /** Connect → sign the view message (no gas) → the server returns only this wallet's row. */
-  async function connectAndView(kind: { chain: "evm"; wallet: EvmWallet } | { chain: "near" }) {
+  async function connectAndView(kind: { chain: "evm"; wallet: EvmWallet } | { chain: "near"; fresh?: boolean }) {
     if (!info) return;
     setNotListed(false);
-    await run("view", async () => {
+    setBusy("view");
+    setError(null);
+    try {
+      await view(kind);
+    } catch (err) {
+      if (kind.chain === "near" && isWalletAccountError(err)) {
+        // Meteor no longer has the remembered account (e.g. another account is active in the wallet).
+        await disconnectWallet(info.network);
+        setRememberedNear(null);
+        setSigner(null);
+        setError("Meteor could not use the remembered account, so it was disconnected. Connect again and choose the account you were paid at.");
+      } else {
+        setError(errorMessage(err));
+      }
+    } finally {
+      setBusy(null);
+      if (kind.chain === "near") setRememberedNear(await currentWalletAccount(info.network));
+    }
+  }
+
+  /** Forget this wallet's row and go back to the connect step. */
+  function resetView() {
+    setSigner(null);
+    setToken(null);
+    setRow(null);
+    setOptions(null);
+    setPrepared(null);
+    setNotListed(false);
+    setReceiver("");
+    setOptionId("near-usdc");
+    setError(null);
+  }
+
+  /** NEAR only: disconnect Meteor, then connect again so the wallet asks which account to use. */
+  async function switchNearAccount() {
+    resetView();
+    await connectAndView({ chain: "near", fresh: true });
+  }
+
+  async function view(kind: { chain: "evm"; wallet: EvmWallet } | { chain: "near"; fresh?: boolean }) {
+    if (!info) return;
+    {
       const s: Signer =
         kind.chain === "evm"
           ? { chain: "evm", wallet: kind.wallet, address: await connectEvm(kind.wallet) }
-          : { chain: "near", address: await connectWallet(info.network, info.contractId) };
+          : { chain: "near", address: await connectWallet(info.network, info.contractId, { fresh: kind.fresh }) };
       setSigner(s);
       const c = await api<{ nonce: string; issued: string; recipient: string }>(`/api/claim/${runKey}/challenge`);
       const message = buildViewMessage({ runKey, address: s.address, nonce: c.nonce, issued: c.issued });
@@ -154,7 +198,7 @@ export function ClaimScreen() {
         if (err instanceof ApiError && err.code === "not_listed") setNotListed(true);
         else throw err;
       }
-    });
+    }
   }
 
   async function prepare() {
@@ -170,7 +214,7 @@ export function ClaimScreen() {
         const signature = await personalSign(signer.wallet, signer.address, prepared.message);
         await api(`/api/claim/${runKey}/submit`, { token, json: { claimId: prepared.claimId, signature } });
       } else if (prepared.kind === "near") {
-        const { txHash } = await callContract(info.network, { receiverId: prepared.call.contractId, methodName: prepared.call.methodName, args: prepared.call.args, gasTgas: prepared.call.gasTgas, depositYocto: prepared.call.depositYocto });
+        const { txHash } = await callContract(info.network, { signerId: signer.address, receiverId: prepared.call.contractId, methodName: prepared.call.methodName, args: prepared.call.args, gasTgas: prepared.call.gasTgas, depositYocto: prepared.call.depositYocto });
         await api(`/api/claim/${runKey}/submit`, { token, json: { claimId: prepared.claimId, txHash } });
       }
       setPrepared(null);
@@ -211,14 +255,32 @@ export function ClaimScreen() {
                 {busy === "view" ? "Check your wallet…" : `${w.name} (EVM)`}
               </button>
             ))}
-            <button className="btn-quiet" disabled={busy !== null} onClick={() => void connectAndView({ chain: "near" })}>
-              Meteor wallet (NEAR)
-            </button>
+            {!rememberedNear && (
+              <button className="btn-quiet" disabled={busy !== null} onClick={() => void connectAndView({ chain: "near" })}>
+                Meteor wallet (NEAR)
+              </button>
+            )}
           </div>
+          {rememberedNear && (
+            <div className="mt-4 rounded-md border border-line p-4 text-sm">
+              <p>
+                Meteor wallet (NEAR) is connected as <span className="num break-all">{rememberedNear}</span>
+              </p>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button className="btn-quiet" disabled={busy !== null} onClick={() => void connectAndView({ chain: "near" })}>
+                  Continue as this account
+                </button>
+                <button className="btn-quiet" disabled={busy !== null} onClick={() => void switchNearAccount()}>
+                  Switch account
+                </button>
+              </div>
+            </div>
+          )}
           {evmWallets?.length === 0 && <p className="mt-3 text-sm text-muted">No EVM wallet extension was found in this browser. Install MetaMask to claim with an EVM address.</p>}
           {notListed && signer && (
             <p className="mt-4 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
               This wallet isn&apos;t in this payroll run. <span className="num">{signer.address}</span>
+              {signer.chain === "evm" && " To use another address, switch accounts in your wallet extension and connect again."}
             </p>
           )}
         </div>
@@ -230,8 +292,13 @@ export function ClaimScreen() {
           <p className="num mt-1 text-4xl">{row.amountDisplay} <span className="text-xl text-muted">USDC</span></p>
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div>
-              <dt className="label">Wallet</dt>
+              <dt className="label">Connected as</dt>
               <dd className="num mt-0.5 break-all text-xs">{row.address}</dd>
+              <dd className="mt-1.5">
+                <button className="text-xs underline disabled:opacity-50" disabled={busy !== null} onClick={() => (signer?.chain === "near" ? void switchNearAccount() : resetView())}>
+                  {signer?.chain === "near" ? "Switch account" : "Use a different wallet"}
+                </button>
+              </dd>
             </div>
             {(row.name || row.memo) && (
               <div>

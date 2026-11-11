@@ -3,7 +3,7 @@ import { Buffer } from "buffer";
 import type { WalletSelector } from "@near-wallet-selector/core";
 
 /**
- * NEAR wallet access for approvers. One wallet is wired: Meteor (the owner's approver wallet).
+ * NEAR wallet access for approvers and recipients. One wallet is wired: Meteor.
  * Loaded lazily so nothing wallet-related runs on the server.
  */
 const WALLET_ID = "meteor-wallet";
@@ -21,21 +21,50 @@ function getSelector(network: string): Promise<WalletSelector> {
   return selector;
 }
 
-/** Connects the wallet if needed and returns the account ID. */
-export async function connectWallet(network: string, contractId: string): Promise<string> {
-  const wallet = await (await getSelector(network)).wallet(WALLET_ID);
-  // Meteor's getAccounts() throws ("No current account connected…") instead of returning [] when
-  // nothing is connected yet, so a failure here just means "not connected".
-  let accounts: Awaited<ReturnType<typeof wallet.getAccounts>> = [];
+/** The account the wallet remembers for this site, or null. Never opens the wallet. */
+export async function currentWalletAccount(network: string): Promise<string | null> {
   try {
-    accounts = await wallet.getAccounts();
+    const wallet = await (await getSelector(network)).wallet(WALLET_ID);
+    // Meteor's getAccounts() throws ("No current account connected…") instead of returning [] when
+    // nothing is connected yet, so a failure here just means "not connected".
+    return (await wallet.getAccounts())[0]?.accountId ?? null;
   } catch {
-    accounts = [];
+    return null;
   }
-  if (accounts.length === 0) accounts = await wallet.signIn({ contractId, accounts: [] });
-  const first = accounts[0];
+}
+
+/**
+ * Connects the wallet if needed and returns the account ID.
+ * `fresh` forgets the remembered connection first, so the wallet asks which account to use.
+ */
+export async function connectWallet(network: string, contractId: string, opts: { fresh?: boolean } = {}): Promise<string> {
+  if (opts.fresh) await disconnectWallet(network);
+  const remembered = opts.fresh ? null : await currentWalletAccount(network);
+  if (remembered) return remembered;
+  const wallet = await (await getSelector(network)).wallet(WALLET_ID);
+  const first = (await wallet.signIn({ contractId, accounts: [] }))[0];
   if (!first) throw new Error("The wallet did not return an account");
   return first.accountId;
+}
+
+/**
+ * Makes sure the wallet is connected as `expected` before signing. The browser remembers ONE Meteor
+ * connection for this site, shared by the approver pages and the claim page, so it can point at
+ * another account; then the wallet is asked to connect again.
+ */
+export async function ensureWalletAccount(network: string, contractId: string, expected: string): Promise<void> {
+  let account = await connectWallet(network, contractId);
+  if (account !== expected) account = await connectWallet(network, contractId, { fresh: true });
+  if (account !== expected) {
+    await disconnectWallet(network);
+    throw new Error(`The wallet connected as ${account}, but this step must be signed by ${expected}. Try again and choose ${expected} in Meteor.`);
+  }
+}
+
+/** True for the wallet's errors that mean "the remembered account is not available in this wallet". */
+export function isWalletAccountError(err: unknown): boolean {
+  const text = err instanceof Error ? err.message : String(err);
+  return /could not be found|no current account|not connected/i.test(text);
 }
 
 export async function disconnectWallet(network: string): Promise<void> {
@@ -60,12 +89,16 @@ export interface TxResult {
   txHash: string | null;
 }
 
-/** Sends one function call from the connected wallet and throws if the transaction failed. */
+/**
+ * Sends one function call from the wallet and throws if the transaction failed.
+ * `signerId` is the account that must sign it; the wallet is reconnected if it points elsewhere.
+ */
 export async function callContract(
   network: string,
-  p: { receiverId: string; methodName: string; args: object; gasTgas: number; depositYocto: string },
+  p: { signerId: string; receiverId: string; methodName: string; args: object; gasTgas: number; depositYocto: string },
 ): Promise<TxResult> {
   const core = await import("@near-wallet-selector/core");
+  await ensureWalletAccount(network, p.receiverId, p.signerId);
   const wallet = await (await getSelector(network)).wallet(WALLET_ID);
   const outcome = await wallet.signAndSendTransaction({
     receiverId: p.receiverId,

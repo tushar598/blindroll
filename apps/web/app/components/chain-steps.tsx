@@ -66,15 +66,16 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
   const create = () =>
     act("create", async () => {
       const c = await api<CreateArgs>(`/api/runs/${run.runKey}/create-args`);
-      return (await callContract(run.network, { receiverId: c.contractId, methodName: "create_run", args: c.args, gasTgas: 30, depositYocto: c.depositYocto })).txHash;
+      return (await callContract(run.network, { signerId: accountId, receiverId: c.contractId, methodName: "create_run", args: c.args, gasTgas: 30, depositYocto: c.depositYocto })).txHash;
     }, true);
   const approve = () =>
-    act("approve", async () => (await callContract(run.network, { receiverId: run.contractId, methodName: "approve_run", args: { run_key: run.runKey }, gasTgas: 30, depositYocto: "0" })).txHash);
+    act("approve", async () => (await callContract(run.network, { signerId: accountId, receiverId: run.contractId, methodName: "approve_run", args: { run_key: run.runKey }, gasTgas: 30, depositYocto: "0" })).txHash);
   const fund = () =>
     act("fund", async () => {
       const remaining = (BigInt(chain!.total_amount) - BigInt(chain!.funded_amount)).toString();
       return (
         await callContract(run.network, {
+          signerId: accountId,
           receiverId: run.tokenId,
           methodName: "ft_transfer_call",
           args: { receiver_id: run.contractId, amount: remaining, msg: JSON.stringify({ fund_run: run.runKey }) },
