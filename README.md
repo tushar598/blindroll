@@ -14,7 +14,7 @@ Specs are in [`docs/`](docs/README.md). Everything below runs on **NEAR testnet*
 |---|---|
 | Contract | [`blindroll.blindroll-dev.testnet`](https://testnet.nearblocks.io/address/blindroll.blindroll-dev.testnet) |
 | Test token (mUSDC) | [`usdc.blindroll-dev.testnet`](https://testnet.nearblocks.io/address/usdc.blindroll-dev.testnet) |
-| Relayer (pays gas for EVM-wallet claims) | [`relayer.blindroll-dev.testnet`](https://testnet.nearblocks.io/address/relayer.blindroll-dev.testnet) |
+| Relayer (pays the gas for claims) | [`relayer.blindroll-dev.testnet`](https://testnet.nearblocks.io/address/relayer.blindroll-dev.testnet) |
 | Example run on-chain | [`create_run` transaction](https://testnet.nearblocks.io/txns/4Got5u17zqcup7Fk6NDGMtX5TrZbdD5cMU4Xcrqfgixu) |
 | Hosted demo | Not deployed yet; run it locally (below) |
 
@@ -31,7 +31,7 @@ You need the [Meteor wallet](https://meteorwallet.app) with a testnet account th
 | **Approve** as each approver (threshold 2) | Approvals appear as each approver signs; the page re-reads the contract by itself |
 | **Get test USDC**, then **Fund** | The run becomes Active and shows the claim link |
 | Open the claim link, connect the recipient's wallet, sign the view message | Only that wallet's row. A wallet that is not in the run learns nothing |
-| Choose **USDC on NEAR** and claim | EVM wallet: you sign a message, the relayer submits it and pays the gas. NEAR wallet: you send `claim_near` yourself. The test USDC arrives and the transaction is linked |
+| Choose **USDC on NEAR** and claim | Gas-free for both wallet kinds. EVM wallet: you sign a message and the relayer submits it. NEAR wallet, to your own account: nothing more to sign, the relayer submits `claim_near_relayed`, which can only pay your own account ([example transaction](https://testnet.nearblocks.io/txns/7cLq3BTUQA3jpPXbYQUQwReqgyvw3coxjjHFow6VPr4w)). The test USDC arrives and the transaction is linked |
 | Choose **USDC on Base** (badged **Simulated**) and claim | A real claim that pays the test USDC to a holding account. Nothing arrives on Base: 1Click has no testnet |
 | On the run page, **Claims** → **Simulate a failed delivery and refund** → **Reopen claim** | A real refund transfer back to the contract (linked), then a real `reopen_claim`. The recipient can claim again |
 | Open **Verify the report and export** | ✓ / ✗ for each check, computed in your browser: report hash, the hash stored on the contract (read from a public RPC), Merkle root, totals, and the NEAR AI Cloud signature. Approvers can download the reconciled CSV/JSON |
@@ -74,7 +74,7 @@ The leaf format, Merkle rules and claim message are identical in TypeScript (`pa
 | Blindroll contract (Merkle proofs, EVM signature recovery, approvals, payouts, reopen) | **Real**, deployed on NEAR testnet |
 | Approver flow: sign-in, create, approve, fund | **Real** testnet transactions from browser wallets |
 | AI column mapping | **Real** NEAR AI Cloud call. The response signature is verified at finalize and again on the verify page |
-| Claims paid as USDC on NEAR (EVM wallet through the relayer, NEAR wallet directly) | **Real** testnet transactions |
+| Claims paid as USDC on NEAR, gas-free through the relayer (EVM wallet: signed claim message; NEAR wallet: `claim_near_relayed` to the recipient's own account) | **Real** testnet transactions |
 | USDC | **Mock token** (`contracts/mock-usdc`, symbol `mUSDC`, open mint, no value). Real USDC exists only on mainnet, which this project has not used |
 | Cross-chain payout estimates (USDC on Base / Arbitrum) | **Real** 1Click dry quotes, priced with mainnet assets and labelled "estimated". A dry quote moves no funds |
 | Cross-chain delivery on testnet | **Simulated.** 1Click has no testnet. The recipient really signs, the contract really verifies and really pays the test USDC, but to a holding account (`SIM_SINK_ACCOUNT_ID`) where a 1Click deposit address would be. Nothing arrives on the destination chain. Marked `simulated: true` in API responses and badged "Simulated" on the claim page and the approver's run page |
@@ -102,8 +102,8 @@ The Blindroll backend sees the table in plaintext. It stores it encrypted at res
 
 - **Attestation is not verified.** The TEE attestation is fetched before the AI call, bound to a fresh nonce and stored, and its hash is in the report, but the Intel TDX quote is not verified. Only the response signature is. The report and the verify page say `verified: false`.
 - **Refunds are not proven on-chain.** `reopen_claim` trusts the approvers that the funds came back. The app only offers it after the refund transfer succeeded, but the contract itself does not compare its balance with what it owes.
-- **NEAR-wallet claims pay their own gas.** EVM-wallet claims are gas-free (the relayer submits them). A NEAR recipient sends `claim_near` from their own wallet.
-- **One NEAR wallet.** Only Meteor is wired.
+- **Gas-free NEAR claims only pay your own account.** The relayer can submit a NEAR recipient's claim because the contract then pays that recipient's own account and nothing else. A NEAR recipient who wants the USDC in a different NEAR account sends `claim_near` from their own wallet and pays the gas. The relayer could also deliver a NEAR payout to its rightful account before the recipient asks; it can never redirect one. This is not a NEP-366 meta-transaction: Meteor could not be shown to sign delegate actions in time.
+- **One tested NEAR wallet.** Meteor. Intear and Sender are wired but switched off (`NEAR_WALLETS`) because they have not been tested.
 - **Cross-chain delivery is not real on testnet** (above). The mainnet 1Click path with a real quote and deposit address is not built.
 - **One seeded organization.** There is no organization management UI; approvers are configuration.
 - **A backend you must trust** (above), and a single SQLite file as its database.

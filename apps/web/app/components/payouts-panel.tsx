@@ -29,7 +29,7 @@ interface ReopenCall {
 }
 
 export function SimulatedBadge() {
-  return <span className="rounded border border-warn/40 bg-warn-soft px-1.5 py-0.5 text-xs font-medium text-warn">Simulated</span>;
+  return <span className="border border-[#8a5a00]/40 bg-[#fbf0d6] px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider text-[#8a5a00]">Simulated</span>;
 }
 
 const OPTION_LABELS: Record<string, string> = { "near-usdc": "USDC on NEAR", "oneclick:base:USDC": "USDC on Base", "oneclick:arb:USDC": "USDC on Arbitrum" };
@@ -79,23 +79,23 @@ export function PayoutsPanel({ run }: { run: RunView }) {
       await api(`/api/runs/${run.runKey}/payouts/${p.claimId}/reopen`, { json: { txHash } });
     });
 
-  if (payouts === null) return <p className="text-sm text-muted">{error ?? "Loading claims…"}</p>;
+  if (payouts === null) return <p className="text-sm font-mono text-[#322E25]/60">{error ?? "Loading claims…"}</p>;
   return (
-    <div className="space-y-3">
-      {error && <p className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">{error}</p>}
-      {payouts.length === 0 && <p className="card p-5 text-sm text-muted">No claims yet.</p>}
+    <div className="space-y-4">
+      {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm font-mono text-[#a3271f]">{error}</p>}
+      {payouts.length === 0 && <p className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-5 text-sm font-mono text-[#322E25]/60">No claims yet.</p>}
       {payouts.map((p) => (
-        <div key={p.claimId} className="card p-5 text-sm">
+        <div key={p.claimId} className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-5 text-sm font-mono">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <p className="num break-all text-xs">{p.address}</p>
-            <p className="num">{p.amountDisplay} USDC</p>
+            <p className="num break-all text-xs text-[#322E25]/80">{p.address}</p>
+            <p className="num text-base font-bold text-[#322E25]">{p.amountDisplay} USDC</p>
           </div>
-          <p className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="font-medium">{OPTION_LABELS[p.optionId] ?? p.optionId}</span>
+          <p className="mt-2.5 flex flex-wrap items-center gap-2">
+            <span className="font-semibold">{OPTION_LABELS[p.optionId] ?? p.optionId}</span>
             {p.simulated && <SimulatedBadge />}
-            <span className="text-muted">
+            <span className="text-[#322E25]/70">
               {!p.simulated && "Delivered: paid to "}
-              {!p.simulated && <span className="num">{p.payoutTarget}</span>}
+              {!p.simulated && <span className="num font-medium text-[#322E25]">{p.payoutTarget}</span>}
               {p.payoutStatus === "delivered_simulated" && "Delivered (simulated)"}
               {p.payoutStatus === "refunding" && "Refund transfer in progress…"}
               {p.payoutStatus === "refunded_simulated" && "Refunded (simulated failure, real refund)"}
@@ -103,32 +103,32 @@ export function PayoutsPanel({ run }: { run: RunView }) {
             </span>
           </p>
           {p.simulated && (
-            <p className="mt-1 text-xs leading-5 text-muted">
-              Nothing was delivered to <span className="num">{p.destinationAddress}</span>: 1Click has no testnet. The contract really paid the test USDC to the holding account{" "}
-              <span className="num">{p.payoutTarget}</span>.
+            <p className="mt-1 text-xs leading-5 text-[#322E25]/60">
+              Nothing was delivered to <span className="num text-[#322E25]">{p.destinationAddress}</span>: 1Click has no testnet. The contract really paid the test USDC to the holding account{" "}
+              <span className="num text-[#322E25]">{p.payoutTarget}</span>.
             </p>
           )}
-          <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            {p.claimTx && <a className="underline" href={explorerTx(run.network, p.claimTx)} target="_blank" rel="noreferrer">Claim transaction</a>}
-            {p.refundTx && <a className="underline" href={explorerTx(run.network, p.refundTx)} target="_blank" rel="noreferrer">Refund transaction (real transfer back to the contract)</a>}
-            {p.reopenTx && <a className="underline" href={explorerTx(run.network, p.reopenTx)} target="_blank" rel="noreferrer">Reopen transaction</a>}
+          <p className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+            {p.claimTx && <a className="text-[#0667DC] underline hover:no-underline" href={explorerTx(run.network, p.claimTx)} target="_blank" rel="noreferrer">Claim transaction</a>}
+            {p.refundTx && <a className="text-[#0667DC] underline hover:no-underline" href={explorerTx(run.network, p.refundTx)} target="_blank" rel="noreferrer">Refund transaction (real transfer back to the contract)</a>}
+            {p.reopenTx && <a className="text-[#0667DC] underline hover:no-underline" href={explorerTx(run.network, p.reopenTx)} target="_blank" rel="noreferrer">Reopen transaction</a>}
           </p>
           {p.simulated && p.payoutStatus === "delivered_simulated" && (
-            <div className="mt-3">
-              <button className="btn-quiet" disabled={busy !== null || simSink === null} onClick={() => void refund(p)}>
+            <div className="mt-3.5 pt-3 border-t border-[#322E25]/10">
+              <button className="btn-quiet text-xs" disabled={busy !== null || simSink === null} onClick={() => void refund(p)}>
                 {busy === `refund-${p.claimId}` ? "Sending the refund transfer…" : "Simulate a failed delivery and refund"}
               </button>
-              <p className="mt-1 text-xs text-muted">
+              <p className="mt-1 text-xs text-[#322E25]/60">
                 The failure is simulated; the refund is real: the holding account sends {p.amountDisplay} USDC back to the contract.
               </p>
             </div>
           )}
           {p.simulated && p.payoutStatus === "refunded_simulated" && (
-            <div className="mt-3">
-              <button className="btn" disabled={busy !== null || !p.refundTx} onClick={() => void reopen(p)}>
+            <div className="mt-3.5 pt-3 border-t border-[#322E25]/10">
+              <button className="btn text-xs" disabled={busy !== null || !p.refundTx} onClick={() => void reopen(p)}>
                 {busy === `reopen-${p.claimId}` ? "Confirm in your wallet…" : "Reopen claim"}
               </button>
-              <p className="mt-1 text-xs text-muted">Check the refund transaction above first. Reopening lets this recipient claim again.</p>
+              <p className="mt-1 text-xs text-[#322E25]/60">Check the refund transaction above first. Reopening lets this recipient claim again.</p>
             </div>
           )}
         </div>

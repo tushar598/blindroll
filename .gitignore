@@ -17,3 +17,6 @@ target/
 data/
 # personal test files (contain real wallet addresses)
 docs/samples/my-*.csv
+
+# separate design-reference repository (its own git clone); not part of this repo
+Near_build-UI-design/

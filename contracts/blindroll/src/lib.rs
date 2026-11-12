@@ -532,6 +532,34 @@ impl Blindroll {
         self.pay_claim(run, leaf_hash, amount, payout)
     }
 
+    /// Gas-free claim for a NEAR recipient: the relayer submits it and pays the gas.
+    /// There is no payout argument and no recipient signature, because the relayer has no
+    /// choice to make: the USDC can only go, as USDC on NEAR, to the leaf's own account.
+    /// Only the configured relayer may call this, so a stranger cannot decide when a
+    /// recipient's payout is triggered. Any other payout (another receiver, 1Click) still
+    /// needs the recipient's own call to `claim_near`.
+    pub fn claim_near_relayed(
+        &mut self,
+        run_key: String,
+        leaf: Leaf,
+        proof: Vec<String>,
+    ) -> Promise {
+        require!(
+            env::predecessor_account_id() == self.relayer,
+            "Only the relayer can call this"
+        );
+        let (run, leaf_hash, amount) = self.check_claim(&run_key, &leaf, &proof);
+        require!(
+            leaf.chain == "near",
+            "claim_near_relayed requires a near leaf"
+        );
+        let receiver: AccountId = leaf
+            .address
+            .parse()
+            .unwrap_or_else(|_| env::panic_str("The leaf address is not a NEAR account ID"));
+        self.pay_claim(run, leaf_hash, amount, Payout::NearFt { receiver })
+    }
+
     /// Claim by an EVM recipient. Anyone (normally the relayer) may submit; the recipient's
     /// personal_sign signature over the claim message authorizes this exact payout.
     #[allow(clippy::too_many_arguments)]

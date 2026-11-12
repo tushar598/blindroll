@@ -1,6 +1,6 @@
 # HANDOFF — read this first in every new session
 
-Last updated: 2026-11-11 (simulated 1Click delivery built; waiting for the owner to create the sim-sink account and for the recipient browser test). Update this file at the end of every work session.
+Last updated: 2026-11-12 (decisions 6, 8 and 9 acted on: gas-free NEAR claims through `claim_near_relayed`, redeployed and proven on testnet; pre-push check clean and Railway settings below; Intear and Sender wired but off by default. Decision 7 waits for the owner; decision 10 not started. All vitest, typecheck, lint, cargo test and the production build pass). Update this file at the end of every work session.
 
 ## 1. Project in one paragraph
 Blindroll is claim-based payroll on NEAR for the NEAR Hackathon (tracks: Real-World Money + Privacy & Private AI). An approver uploads a messy payroll CSV; NEAR AI Cloud (TEE) proposes a column mapping; deterministic code normalizes and runs rules; an attested report is built; approvers sign and fund USDC into a contract that stores only a Merkle root and the report hash; each recipient verifies their wallet, sees only their own row, and claims in their chosen asset/chain (NEAR USDC or 1Click), gas-free. Full specs: `docs/` (start at `docs/README.md`). Rules: `AGENTS.md`.
@@ -17,9 +17,21 @@ Deadline: hackathon ends Nov 14, 2026 (confirm the exact time on https://nearhac
 | `483000a` | NEAR AI Cloud fixture, mapping client and signature verifier (`packages/core/src/ai/`) |
 | `9a0d833` | Report builder, review and finalize (`packages/core/src/report/`) |
 | `73c1aea`, `7800b53`, `4936950` | Approver backend + UI; Meteor connect fix; on-chain status auto-refresh |
-| (latest) | Claim page and claim flow; 1Click client + fixtures; relayer |
+| `latest` | Claim page and claim flow; 1Click client + fixtures; relayer |
+| `ui-overhaul` | Complete brutalist UI overhaul matching Near_build-UI-design: `#E9E1CD` parchment background, `#E1D7C0]/60` cards, all buttons with `#0667DC` cobalt blue background, white text (`text-white font-mono`), white border & white drop-shadow with hover lift (`hover:bg-[#0556B8] hover:shadow-[3px_3px_0px_0px_#ffffff]`), `#322E25]/15` borders, dual-row marquee, responsive layouts |
 
-Tests at last check (2026-11-11): `pnpm -r test` 149 (core) + 28 (web) passed; `pnpm -r typecheck`, `pnpm --filter web lint` and `pnpm --filter web build` clean; `cargo test` 97 + 5 unit, 2 sandbox passed (last run inside the deploy script; contracts unchanged since).
+Tests at last check (2026-11-12): `pnpm -r test` 153 (core) + 43 (web) passed; `pnpm --filter web lint` clean; `pnpm -r typecheck` and `pnpm build` clean; `cargo test` 112 + 5 unit tests and 3 sandbox tests passed.
+
+### Gas-free NEAR claims (2026-11-12) — decision 6 is SETTLED: fallback B is built and live
+- **Spike A did not succeed inside the hour.** Wallet Selector's Meteor module bundles `@meteorwallet/sdk` 1.0.24 (no delegate-action call at all). `@meteorwallet/sdk` 3.24.1 has `near::sign_delegate_actions`, bundles with esbuild (about 2.5 MB, needs `buffer`/`util` polyfills) and can sit next to Wallet Selector, but it keeps its own connection, so the claim page would need a second Meteor sign-in plus one more popup. No real signature could be obtained: `wallet.meteorwallet.app` blocks automated browsers (Cloudflare), so only the owner's wallet could prove it. Nothing from the spike is in the repo.
+- **Built (B):** contract method `claim_near_relayed(run_key, leaf, proof)`: relayer only, NEAR leaves only, no payout argument, always pays USDC on NEAR to the leaf's own account. 15 unit tests + 1 sandbox test. `claim_near` is unchanged.
+- **App:** a NEAR recipient who keeps the default receiver (their own account) presses "Claim (gas-free)" and signs nothing; `POST /submit {claimId}` makes the relayer send `claim_near_relayed`. A different receiver still uses `claim_near` from the wallet (recipient pays gas). Logic: `isRelayedNearClaim` in `apps/web/lib/server/claims.ts`.
+- **Redeployed (code only, state unchanged):** `blindroll.blindroll-dev.testnet`, code hash `d9e9c6fed9c204557bb11cc46122ef4603cc85c6bbd3594e8974c82e7bd234d7`; `get_config` and run `run-Ngs7_871eapi` read back unchanged.
+- **Proven on testnet:** `pnpm relayed:check` (new, `scripts/relayed-claim-check.mts`) on throwaway run `relayed-check-1794465265790`: relayer tx `7cLq3BTUQA3jpPXbYQUQwReqgyvw3coxjjHFow6VPr4w` succeeded, the recipient got exactly 1.25 mUSDC and its NEAR balance did not change; the same call signed by a non-relayer failed with "Only the relayer can call this".
+- **NOT yet verified (needs the owner's browser):** the "Claim (gas-free)" button with a Meteor recipient.
+- **Also fixed:** `POST /api/claim/:runKey/prepare` returned 400 for cross-chain options because it required `receiver`, which the page only sends for "USDC on NEAR". This would have blocked the owner's simulated "USDC on Base" test.
+- Throwaway account `br-spike-1794464711.testnet` (faucet-funded, key in `~/.near-credentials/testnet/`) was created for these checks; it is the creator/approver of that throwaway run and can be ignored or deleted.
+- Docs updated: 03, 04, 07, 09, 11, 12, README (gas-free wording, limitation reworded).
 
 Simulated (labelled): cross-chain delivery on testnet and the delivery failure that triggers a refund. Everything else is real. See the README table.
 
@@ -31,7 +43,7 @@ Simulated (labelled): cross-chain delivery on testnet and the delivery failure t
 - **Verified:** claim services with real signatures and stubs for RPC/relayer (28 web tests); public claim endpoints over HTTP against the built app; `pnpm relayer:check` sent a real testnet transaction from `relayer.blindroll-dev.testnet` (`2Swt3527ecKYdd859HQZGCscWUkAaQCNtqLYgTjbwfVL`).
 - **NOT yet verified (needs the owner's wallets):** a real claim in the browser (MetaMask view + claim signature through the relayer to the contract; Meteor NEAR view + `claim_near`).
 - First browser test passed earlier the same day: run `run-Ngs7_871eapi` is Active, 2 of 2 approvals, 7,000.50 test USDC funded (its recipients are sample addresses nobody controls).
-- Not built: 1Click execution path (real quote, deposit submit, status polling, refund → reopen), gas-free NEAR claims (NEP-366), report verify page, export.
+- Not built: 1Click execution path on mainnet (real quote, deposit submit, status polling). NEP-366 delegate actions are not used (see "Gas-free NEAR claims" above).
 
 ### Approver app (2026-11-11)
 - Flow built: sign in (Meteor, NEP-413) → upload CSV → column mapping (cache → live AI when `NEAR_AI_LIVE=1` → manual form) → review table (edit, remove with reason, accept warnings with reason) → finalize → `create_run` / `approve_run` / fund, each from the wallet or with a copyable NEAR CLI command → "Refresh on-chain status".
@@ -78,6 +90,54 @@ Still to apply:
 4. **CSV behaviours approved.** Add "currency defaulted to USDC" to the report when there's no currency column (do it in the report builder).
 5. `relayer.blindroll-dev.testnet` already exists (2 NEAR); its key is `RELAYER_PRIVATE_KEY` in the env file. Never add a create step for it.
 
+### Status of decisions 6–10 (2026-11-12)
+| # | Status |
+|---|---|
+| 6 | **Done.** Spike A failed inside the hour; fallback B built, redeployed, proven on testnet (see "Gas-free NEAR claims" in section 2). Owner still has to press "Claim (gas-free)" once with a Meteor recipient |
+| 7 | **Waiting for the owner.** `tushar-approver2.testnet` did not exist on testnet when checked on 2026-11-12. The code is ready (`DEMO_ORG_APPROVERS`) |
+| 8 | **Worker part done.** Pre-push check clean; Railway settings in "Deploy on Railway" below; the hosted build was rehearsed from a clean copy. Nothing was pushed |
+| 9 | **Built, off by default, not verified in a browser.** Intear and Sender (see "More wallets" below) |
+| 10 | **Not started, on purpose.** The core is not done (owner's simulated test, hosted deploy, video), and 10(a) changes `reopen_claim`, which that simulated test exercises |
+
+### More wallets (decision 9, 2026-11-12)
+- The chosen claim path needs only an in-page NEP-413 `signMessage` made with a full-access key, plus `signAndSendTransaction` for approvers and for recipients who pay another account. Wired through Wallet Selector 10.1.4: **Meteor** (always on), **Intear** (`intear-wallet`) and **Sender** (`sender`).
+- **Intear and Sender are OFF until `NEAR_WALLETS=intear-wallet,sender` (or one of them) is set**, because nobody has tested them in a browser. When more than one wallet is enabled, a "NEAR wallet:" picker appears next to the sign-in button and on the claim page; the choice is remembered per browser. Code: `apps/web/lib/client/wallet.ts`, `app/components/near-wallet-choice.tsx`, `enabledNearWallets` in `lib/server/config.ts`.
+- **To verify each (owner, in a browser):** sign in as an approver, send one approver transaction, and view + claim as a recipient. Most likely failure: sign-in returns `key_not_owned` if the wallet signs messages with a key that is not a full-access key.
+- Left out: MyNearWallet (redirect wallet: sign-in and `signMessage` leave the page, which the one-click connect → sign flow cannot follow) and HOT (pulls a large SDK with native add-ons).
+- `pnpm-workspace.yaml` now lists `bufferutil` and `utf-8-validate` as not built. Without that, `pnpm install --frozen-lockfile` fails with `ERR_PNPM_IGNORED_BUILDS` (it would have failed on the host).
+
+### Deploy on Railway (decision 8, 2026-11-12) — the owner pushes and deploys
+**Pre-push check (run on 2026-11-12, all clean):** the only tracked env file is `.env.example`; no key, JWT or API key in any commit of the history or in the working tree (the `ed25519:` strings in `packages/core/test-vectors/ai/` are public signatures; the `0xac09…` key in tests is the public Hardhat key); `.env.local`, `data/`, `docs/samples/my-*.csv` are ignored and were never committed. `Near_build-UI-design/` is a separate git clone and is now in `.gitignore` (committing it would create a broken submodule entry). Repeat before pushing: `git ls-files | grep -iE "\.env|\.pem|\.sqlite|my-.*\.csv"` must print only `.env.example`.
+
+**Railway service settings** (checked against docs.railway.com on 2026-11-12; `railway.json` is deprecated there, so use the dashboard):
+| Setting | Value |
+|---|---|
+| Source | The GitHub repo, **root directory `/`** (the repo root, not `apps/web`) |
+| Builder | Railpack (default). Node comes from `engines.node` = `24.x` in the root `package.json`; pnpm from `packageManager` |
+| Build command | `pnpm build` (the install step is automatic: `pnpm install --frozen-lockfile`) |
+| Start command | `pnpm start` (Next.js listens on Railway's `PORT`) |
+| Volume | One volume, mount path `/data` |
+| Replicas | 1. Never more: SQLite file, and Railway does not allow replicas with a volume |
+| Public networking | Generate a domain |
+| Healthcheck path | `/api/auth/me` (optional) |
+
+**Variables (names only; values come from the local env file):** `NEAR_NETWORK`, `NEAR_RPC_URL`, `BLINDROLL_CONTRACT_ID`, `USDC_TOKEN_ID`, `RELAYER_ACCOUNT_ID`, `RELAYER_PRIVATE_KEY`, `NEAR_AI_API_KEY`, `NEAR_AI_BASE_URL`, `NEAR_AI_MODEL`, `NEAR_AI_LIVE`, `ONECLICK_BASE_URL`, `ONECLICK_JWT`, `ONECLICK_MODE`, `DATA_ENCRYPTION_KEY`, `SESSION_SECRET`, `APP_URL`, plus `BLINDROLL_DB_FILE=/data/blindroll.sqlite`. Optional: `DEMO_ORG_APPROVERS`, `SIM_SINK_ACCOUNT_ID`, `SIM_SINK_PRIVATE_KEY`, `NEAR_WALLETS`.
+- **All 16 required variables must be set before the first build**: `next.config.ts` checks them at build time and the build fails with the names of the missing ones. Railway gives service variables to the build.
+- `APP_URL` must be the exact public origin with `https://` and no path, e.g. `https://${{RAILWAY_PUBLIC_DOMAIN}}`. If it is wrong, every POST fails with `403 bad_origin` and the session cookie is not marked secure.
+- Seal the secrets in Railway (`RELAYER_PRIVATE_KEY`, `SIM_SINK_PRIVATE_KEY`, `NEAR_AI_API_KEY`, `ONECLICK_JWT`, `DATA_ENCRYPTION_KEY`, `SESSION_SECRET`).
+- `DATA_ENCRYPTION_KEY` and `SESSION_SECRET` can be new values for the host; the hosted database starts empty anyway. Changing `DATA_ENCRYPTION_KEY` later makes existing rows unreadable.
+- `NEAR_AI_LIVE`: with `0`, a judge who uploads a file sees the manual mapping form, because the hosted database has no cached mapping. `1` makes one real call per new file (cached by CSV hash). Owner's choice; `1` shows the AI step.
+- A redeploy has a few seconds of downtime (the volume can be mounted by one deployment at a time).
+- **Rehearsed locally:** a copy holding only committable files, no env file, `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm start` with placeholder variables: pages and API answered, the database file was created at `BLINDROLL_DB_FILE`, a foreign `Origin` got 403 and the `APP_URL` origin passed. Not rehearsed: Linux (no Docker on this machine), so the `better-sqlite3` native binary on the host is the one thing unproven.
+
+### Owner decisions on 2026-11-11 (late)
+6. **Gas-free NEAR claims: spike A, timeboxed to 1 hour.** Use `@meteorwallet/sdk` ONLY to sign the `claim_near` delegate action; keep Wallet Selector for sign-in, approve and fund if both can coexist on one page (if they can't, ask the owner before migrating everything). The backend must check the delegate action: sender = the leaf's NEAR account, receiver = our contract, a single FunctionCall to `claim_near`, no deposit, sensible gas and expiry.
+   **If the spike fails, build B without asking again:** `claim_near_relayed(run_key, leaf, proof)` that requires `predecessor == self.relayer` (the relayer is already in the contract config with `set_relayer`, so no config change) and pays USDC on NEAR only to the leaf's own account. Add tests, redeploy the contract code to testnet (state unchanged), update docs/04 and docs/07. Say "gas-free claims" in the README only once it works.
+7. **Second approver:** the owner is creating `tushar-approver2.testnet` in Meteor and will set `DEMO_ORG_APPROVERS=tushar1962005.testnet,tushar-approver2.testnet` in `.env.local`.
+8. **GitHub and deploy are done by the owner.** The worker only helps: before the owner pushes, check that no secrets or env files are tracked and that `docs/samples/my-*.csv` is ignored; give exact Railway settings (volume, `BLINDROLL_DB_FILE`, `APP_URL`, build/start commands, variable list by name only); fix anything that breaks on the hosted build. Never push yourself.
+9. **More wallets:** only after decision 6 is settled, and only wallets that work with the chosen claim path.
+10. **Optional items are now confirmed in scope, after the core is done** (core = items 6–9 plus the owner's simulated test, hosted deploy, README and video). Order: (a) `reopen_claim` balance check that proves the refund arrived ("Open issue: proving the refund" in docs/04; contract change + tests + redeploy); (b) full NEAR AI attestation verification (Intel DCAP quote; see docs/05); (c) Confidential Intents payout rail, timeboxed to one day (docs/06, docs/08); (d) DAO/multisig approvals (SputnikDAO, Trezu; docs/12 "Later"). Stop and ship if the deadline gets close: the core always comes first.
+
 ## 4. Accounts and environment
 | Item | Value |
 |---|---|
@@ -96,27 +156,27 @@ Still to apply:
 Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see the root `package.json` scripts).
 
 ## 5. Next steps, in order
-State on 2026-11-11 (evening), after commits `e2dadba`, `a1917f2`, `9c62e62` and the README commit:
+State on 2026-11-12, working tree uncommitted (the UI overhaul plus today's work; the owner commits and pushes):
 
-- **Owner-verified on testnet:** NEAR claim (`claim_near`, tx `5YSRXdSH81hvmTFYS6CMckNUiaX6QEhMch3RDMj3r5Y5`) and EVM claim via the relayer (tx `BYXNerEbjZJrxKzhho7DJgzvsZWJ6EhyKGRwaqaR5R1N`).
-- **Built, not yet tested in a browser:** claim-page "Connected as / Switch account"; report verify page + export (the same checks pass from the CLI on run `run-Ngs7_871eapi`); Fund / Get test USDC buttons; the simulated cross-chain claim → refund → reopen path.
-
-1. **Owner decision: gas-free NEAR claims.** Result of the 1-hour check: Wallet Selector 10.1.4 (latest) Meteor module throws "Method not supported" for `signDelegateAction`, and Wallet Selector core has no delegate-action API. Meteor's own SDK `@meteorwallet/sdk` 3.24.1 (`MeteorConnect`, action `near::sign_delegate_actions`) documents NEP-366 signing; not tried in a browser. Two options were sent to the owner: (A) move Meteor from Wallet Selector to Meteor's SDK, contract unchanged, relayer wraps the SignedDelegate; (B) contract method that lets the relayer submit a NEAR claim that can only pay the leaf's own account (contract change + redeploy). **Build neither before the owner chooses.**
-2. Owner: run the simulated test ("USDC on Base" → refund → reopen → claim again) and the new screens; fix whatever shows up.
-3. Owner: create a second Meteor approver account and set `DEMO_ORG_APPROVERS`; then test create → approve ×2 → Get test USDC → Fund with no terminal. After that, close items 1, 5 and 6 of docs/12 "Before the deployed version".
-4. Deploy (owner chose Railway or Render with a persistent volume, not Vercel). Needs a GitHub repo (nothing is pushed yet) and the owner's hosting account. Root scripts `pnpm build` / `pnpm start` exist; set `BLINDROLL_DB_FILE` to a path on the volume and `APP_URL` to the public URL. A production build was started locally and served pages.
-5. README: rewritten on 2026-11-11 (do X → see Y, real vs simulated, privacy, limitations). Add the hosted URL and re-check every row after the deploy. Then the 2-minute video and submit by Nov 14.
+1. **Owner, in a browser (local `pnpm --filter web dev`):** (a) NEAR recipient: connect Meteor, view, **Claim (gas-free)** with the default receiver; (b) the simulated test: "USDC on Base" → refund → reopen → claim again (the `prepare` 400 that blocked it is fixed); (c) the report verify page and export.
+2. **Owner:** create `tushar-approver2.testnet` in Meteor, set `DEMO_ORG_APPROVERS=tushar1962005.testnet,tushar-approver2.testnet`, then create → approve ×2 → Get test USDC → Fund with no terminal. Then close items 1 and 6 of docs/12 "Before the deployed version".
+3. **Owner:** commit, push to GitHub, deploy on Railway with the settings in section 3. The worker fixes anything that breaks on the hosted build.
+4. **Optional, owner:** test Intear and/or Sender, then set `NEAR_WALLETS`.
+5. README: add the hosted URL (row "Hosted demo") and re-check every row after the deploy. Then the 2-minute video and submit by Nov 14.
+6. Only after 1–5: decision 10, in order (a) `reopen_claim` balance check, (b) DCAP attestation verification, (c) Confidential Intents, (d) DAO approvals. Stop and ship if the deadline gets close.
 
 ## 6. Open risks / known gaps
 - **CLI steps:** the copyable CLI commands now render only in development. Funding and test-USDC minting are wallet buttons. Approver #2 is still a CLI-only account until the owner sets `DEMO_ORG_APPROVERS` (see `docs/12-build-plan.md` → "Before the deployed version").
-- **One Meteor connection per browser** is shared by approver pages and the claim page. The claim page shows the remembered account and offers "Switch account"; wallet-sent transactions check the signer first (`ensureWalletAccount` in `apps/web/lib/client/wallet.ts`).
+- **Intear and Sender are untested** and therefore off by default (`NEAR_WALLETS`).
+- **Hosted build not yet run on Linux**; see "Deploy on Railway".
+- **One NEAR wallet connection per browser** is shared by approver pages and the claim page. The claim page shows the remembered account and offers "Switch account"; wallet-sent transactions check the signer first (`ensureWalletAccount` in `apps/web/lib/client/wallet.ts`).
 - **Export column `leaf_index`** is the Merkle tree position, not the row number of the uploaded file (the file row number is not stored after finalize). DAO/multisig approvals (SputnikDAO, Trezu) are a stretch goal listed there under "Later".
 - AI attestation: only the signature and the nonce/signer binding fields are checked; no Intel DCAP quote verification (see docs/05).
 - `reopen_claim` trusts that 1Click really refunded (see docs/04 "Open issue: proving the refund").
 - 1Click has no testnet: cross-chain delivery on testnet is the owner-approved simulation with a real refund (docs/06); dry quotes are real.
 - 1Click **dry** quote schema confirmed; the non-dry response (`depositAddress`, deadline fields) is still unconfirmed and needs an existing mainnet `refundTo`.
 - Native mainnet USDC contract ID and its `storage_deposit` behaviour not yet confirmed.
-- Wallet support for signing NEP-366 delegate actions not yet checked (fallback: direct `claim_near` call).
+- Gas-free NEAR claims rely on the relayer being the only caller of `claim_near_relayed`. A stolen relayer key could deliver NEAR payouts early to their rightful accounts (never redirect them); rotate with `set_relayer` (docs/11 T3).
 - Confidential Intents: optional, timeboxed to one day, not started.
 
 ## 7. How to work with the owner

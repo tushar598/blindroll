@@ -54,7 +54,12 @@ expires: {expires_at_ms}
 - Wallet support for signing delegate actions varies. Check which wallets in wallet-selector support it. **Fallback:** the recipient calls `claim_near` directly and pays a tiny gas fee. Document this in the UI.
 - The relayer account must have a **full-access key** to send Delegate actions (function-call keys can't), so use a dedicated account with a small balance and a monitored top-up.
 
-**As built (2026-11-11): only the fallback.** The NEAR recipient calls `claim_near` directly from Meteor and pays the gas; then the page reports the transaction and the backend confirms it with `is_claimed`. Delegate actions (gas-free NEAR claims) are not built.
+**As built (2026-11-12): gas-free through `claim_near_relayed`, not through delegate actions.**
+
+- *Spike result (1 hour, 2026-11-12).* Wallet Selector 10.1.4 cannot sign delegate actions for Meteor (its Meteor module bundles `@meteorwallet/sdk` 1.0.24, which has no delegate-action call). Meteor's own SDK 3.24.1 documents `near::sign_delegate_actions`, but it keeps its own connection (`MeteorConnect` storage), so the claim page would need a second Meteor sign-in next to Wallet Selector plus one more approval popup, and it adds about 2.5 MB of JavaScript. A real signature could not be obtained inside the timebox: Meteor's web wallet is behind bot protection, so it cannot be driven by a test browser, and only the owner's wallet could prove it. The owner's rule for that case was to build the fallback below.
+- *What runs now.* A NEAR recipient who takes **USDC on NEAR to their own account** signs nothing after the view signature: `POST /api/claim/:runKey/submit {claimId}` makes the relayer call `claim_near_relayed(run_key, leaf, proof)` ([04](04-smart-contract-spec.md)), which pays only the leaf's account. The relayer pays the gas; the recipient needs no NEAR. The view signature (NEP-413, full-access key checked) is what proves to the backend that the caller controls that account; the contract does not depend on it, because the payout can go nowhere else.
+- *Another receiver.* If the recipient types a different NEAR account, the old path is used: they call `claim_near` from their own wallet and pay the gas; the page reports the transaction and the backend confirms it with `is_claimed`.
+- A prepared relayed claim is valid for 10 minutes and can be submitted once; a failed relay can be retried with a new prepare.
 
 ## EVM recipients — relayer submits
 

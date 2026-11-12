@@ -117,6 +117,7 @@ All claim methods share these steps:
 | Method | Authorization |
 |---|---|
 | `claim_near(run_key, leaf, proof, payout)` | `chain == "near"` and `env::predecessor_account_id() == address`. Called directly or through a NEP-366 meta-transaction (predecessor is still the recipient) |
+| `claim_near_relayed(run_key, leaf, proof)` | **Gas-free NEAR claim (added 2026-11-12).** `env::predecessor_account_id() == relayer` (the account set by `new` / `set_relayer`) and `chain == "near"`. There is no `payout` argument: the contract always pays `Payout::NearFt { receiver: address }`, i.e. USDC on NEAR to the leaf's own account. The recipient signs nothing and pays nothing. A leaf claimed this way is a `near_ft` claim, so it cannot be reopened |
 | `claim_evm(run_key, leaf, proof, payout, destination_asset, destination_address, expires_at_ms, signature_hex)` | `chain == "evm"`; `destination_asset` and `destination_address` are only placed into the `to:` line of the message (the contract cannot check what 1Click delivers); `signature_hex` is `0x` + 130 lowercase hex; rebuild the claim message ([07](07-wallet-verification-and-claims.md)); EIP-191 hash with `env::keccak256`; recover with `env::ecrecover`; derived address must equal `address`; `now <= expires_at_ms` |
 | `claim_solana(...)` (stretch) | `chain == "solana"`; `env::ed25519_verify(signature, message, pubkey)`; pubkey decoded from `address` |
 
@@ -132,6 +133,8 @@ JSON: `{"kind":"near_ft","receiver":"…"}` or `{"kind":"oneclick","deposit_addr
 There is no `quote_ref` field: the 1Click deposit address already identifies the quote, it is the signed `payout_target`, and it is visible in the token transfer. The backend keeps the quote details in its own database.
 
 Both resolve to an `ft_transfer` to an account. The kind and target are part of the signed message, so a relayer can't redirect funds.
+
+**Why `claim_near_relayed` needs no recipient signature.** The owner chose it on 2026-11-11 as the fallback after the NEP-366 spike (see [07](07-wallet-verification-and-claims.md)). The method gives the relayer no choice: the amount and the account both come from the Merkle leaf, and the payout is always USDC on NEAR to that account. The worst a relayer (or someone who stole its key) can do is deliver a recipient's payout to the recipient's own account before they asked for it, which removes their option of choosing another receiver or a cross-chain payout for that run. It cannot redirect, split or change a payout. Restricting the caller to the relayer keeps strangers from triggering payouts at all. `claim_near` is unchanged and is still the only way to send a NEAR leaf anywhere other than its own account.
 
 ### Refunds
 | Method | Caller | Behaviour |

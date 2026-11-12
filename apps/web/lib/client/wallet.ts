@@ -3,20 +3,69 @@ import { Buffer } from "buffer";
 import type { WalletSelector } from "@near-wallet-selector/core";
 
 /**
- * NEAR wallet access for approvers and recipients. One wallet is wired: Meteor.
- * Loaded lazily so nothing wallet-related runs on the server.
+ * NEAR wallet access for approvers and recipients, loaded lazily so nothing wallet-related runs on
+ * the server. Every flow needs only two things from a wallet: a NEP-413 message signature made
+ * with a full-access key (sign-in, "view my payout") and, for approvers and for recipients who
+ * send a payout to another account, `signAndSendTransaction`. Gas-free claims need no more
+ * (docs/07), so any Wallet Selector wallet with in-page `signMessage` fits.
+ *
+ * Meteor is always on. The other wallets are wired but OFF until the deployment lists them in
+ * NEAR_WALLETS (see lib/server/config.ts), so a wallet appears only after it was tested.
  */
-const WALLET_ID = "meteor-wallet";
+const WALLETS = {
+  "meteor-wallet": { label: "Meteor", load: () => import("@near-wallet-selector/meteor-wallet").then((m) => m.setupMeteorWallet()) },
+  "intear-wallet": { label: "Intear", load: () => import("@near-wallet-selector/intear-wallet").then((m) => m.setupIntearWallet()) },
+  sender: { label: "Sender", load: () => import("@near-wallet-selector/sender").then((m) => m.setupSender()) },
+} as const;
+type WalletId = keyof typeof WALLETS;
+const DEFAULT_WALLET: WalletId = "meteor-wallet";
+const ACTIVE_KEY = "blindroll.near-wallet";
+
+let enabled: WalletId[] = [DEFAULT_WALLET];
 let selector: Promise<WalletSelector> | undefined;
+
+/** Sets which wallets this deployment offers (from the server). Unknown IDs are ignored. */
+export function configureWallets(ids: readonly string[] | undefined): void {
+  const next = (ids ?? []).filter((id): id is WalletId => id in WALLETS);
+  if (!next.includes(DEFAULT_WALLET)) next.unshift(DEFAULT_WALLET);
+  if (next.join() === enabled.join()) return;
+  enabled = next;
+  selector = undefined;
+}
+
+export function enabledWallets(): Array<{ id: string; label: string }> {
+  return enabled.map((id) => ({ id, label: WALLETS[id].label }));
+}
+
+/** The wallet used for the next connect or signature: the one last chosen in this browser, if still offered. */
+export function activeWalletId(): string {
+  try {
+    const saved = window.localStorage.getItem(ACTIVE_KEY);
+    if (saved && (enabled as string[]).includes(saved)) return saved;
+  } catch {
+    /* storage unavailable */
+  }
+  return enabled[0] ?? DEFAULT_WALLET;
+}
+
+export function activeWalletLabel(): string {
+  return WALLETS[activeWalletId() as WalletId].label;
+}
+
+export function setActiveWallet(id: string): void {
+  if (!(enabled as string[]).includes(id)) return;
+  try {
+    window.localStorage.setItem(ACTIVE_KEY, id);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 function getSelector(network: string): Promise<WalletSelector> {
   if (network !== "testnet" && network !== "mainnet") throw new Error(`Wallets are not available on network "${network}"`);
   selector ??= (async () => {
-    const [{ setupWalletSelector }, { setupMeteorWallet }] = await Promise.all([
-      import("@near-wallet-selector/core"),
-      import("@near-wallet-selector/meteor-wallet"),
-    ]);
-    return setupWalletSelector({ network, modules: [setupMeteorWallet()] });
+    const [{ setupWalletSelector }, ...modules] = await Promise.all([import("@near-wallet-selector/core"), ...enabled.map((id) => WALLETS[id].load())]);
+    return setupWalletSelector({ network, modules });
   })();
   return selector;
 }
@@ -24,7 +73,7 @@ function getSelector(network: string): Promise<WalletSelector> {
 /** The account the wallet remembers for this site, or null. Never opens the wallet. */
 export async function currentWalletAccount(network: string): Promise<string | null> {
   try {
-    const wallet = await (await getSelector(network)).wallet(WALLET_ID);
+    const wallet = await (await getSelector(network)).wallet(activeWalletId());
     // Meteor's getAccounts() throws ("No current account connected…") instead of returning [] when
     // nothing is connected yet, so a failure here just means "not connected".
     return (await wallet.getAccounts())[0]?.accountId ?? null;
@@ -41,14 +90,14 @@ export async function connectWallet(network: string, contractId: string, opts: {
   if (opts.fresh) await disconnectWallet(network);
   const remembered = opts.fresh ? null : await currentWalletAccount(network);
   if (remembered) return remembered;
-  const wallet = await (await getSelector(network)).wallet(WALLET_ID);
+  const wallet = await (await getSelector(network)).wallet(activeWalletId());
   const first = (await wallet.signIn({ contractId, accounts: [] }))[0];
   if (!first) throw new Error("The wallet did not return an account");
   return first.accountId;
 }
 
 /**
- * Makes sure the wallet is connected as `expected` before signing. The browser remembers ONE Meteor
+ * Makes sure the wallet is connected as `expected` before signing. The browser remembers ONE wallet
  * connection for this site, shared by the approver pages and the claim page, so it can point at
  * another account; then the wallet is asked to connect again.
  */
@@ -57,7 +106,7 @@ export async function ensureWalletAccount(network: string, contractId: string, e
   if (account !== expected) account = await connectWallet(network, contractId, { fresh: true });
   if (account !== expected) {
     await disconnectWallet(network);
-    throw new Error(`The wallet connected as ${account}, but this step must be signed by ${expected}. Try again and choose ${expected} in Meteor.`);
+    throw new Error(`The wallet connected as ${account}, but this step must be signed by ${expected}. Try again and choose ${expected} in ${activeWalletLabel()}.`);
   }
 }
 
@@ -69,7 +118,7 @@ export function isWalletAccountError(err: unknown): boolean {
 
 export async function disconnectWallet(network: string): Promise<void> {
   try {
-    const wallet = await (await getSelector(network)).wallet(WALLET_ID);
+    const wallet = await (await getSelector(network)).wallet(activeWalletId());
     await wallet.signOut();
   } catch {
     /* already disconnected */
@@ -78,7 +127,7 @@ export async function disconnectWallet(network: string): Promise<void> {
 
 /** NEP-413 message signature for sign-in. `nonceBase64` is the server's one-time 32-byte nonce. */
 export async function signInMessage(network: string, p: { message: string; recipient: string; nonceBase64: string }) {
-  const wallet = await (await getSelector(network)).wallet(WALLET_ID);
+  const wallet = await (await getSelector(network)).wallet(activeWalletId());
   if (!wallet.signMessage) throw new Error("This wallet cannot sign messages");
   const signed = await wallet.signMessage({ message: p.message, recipient: p.recipient, nonce: Buffer.from(p.nonceBase64, "base64") });
   if (!signed) throw new Error("The wallet did not return a signature");
@@ -99,7 +148,7 @@ export async function callContract(
 ): Promise<TxResult> {
   const core = await import("@near-wallet-selector/core");
   await ensureWalletAccount(network, p.receiverId, p.signerId);
-  const wallet = await (await getSelector(network)).wallet(WALLET_ID);
+  const wallet = await (await getSelector(network)).wallet(activeWalletId());
   const outcome = await wallet.signAndSendTransaction({
     receiverId: p.receiverId,
     actions: [

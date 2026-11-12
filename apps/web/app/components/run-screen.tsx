@@ -38,25 +38,25 @@ export function RunScreen() {
     };
   }, [signedIn, runKey]);
 
-  if (sessionLoading) return <p className="text-sm text-muted">Loading…</p>;
-  if (!me?.accountId) return <p className="text-sm text-muted">Sign in as an approver to open this run.</p>;
-  if (error && !run) return <p className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">{error}</p>;
-  if (!run) return <p className="text-sm text-muted">Loading run…</p>;
+  if (sessionLoading) return <p className="text-sm font-mono text-[#322E25]/60">Loading…</p>;
+  if (!me?.accountId) return <p className="text-sm font-mono text-[#322E25]/60">Sign in as an approver to open this run.</p>;
+  if (error && !run) return <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{error}</p>;
+  if (!run) return <p className="text-sm font-mono text-[#322E25]/60">Loading run…</p>;
 
   const mapped = run.mapping !== null;
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/" className="text-sm text-muted hover:text-ink">← All runs</Link>
+        <Link href="/" className="text-sm font-mono text-[#322E25]/60 hover:text-[#0667DC] transition-colors">← All runs</Link>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{run.name}</h1>
+          <h1 className="text-2xl font-bold tracking-tight uppercase font-mono">{run.name}</h1>
           <StatusPill status={run.status} />
         </div>
-        <p className="num mt-1 text-xs text-muted">
+        <p className="text-xs font-mono text-[#322E25]/60 mt-1">
           {run.runKey} · {run.org.name} · {run.org.threshold} of {run.org.approvers.length} approvers
         </p>
       </div>
-      {error && <p className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">{error}</p>}
+      {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{error}</p>}
 
       <Section n={1} title="Columns" done={mapped}>
         <MappingPanel run={run} onChanged={reload} />
@@ -87,10 +87,10 @@ function Section({ n, title, done, children }: { n: number; title: string; done:
   return (
     <section>
       <div className="mb-3 flex items-center gap-3">
-        <span className={`num flex h-6 w-6 items-center justify-center rounded-full border text-xs ${done ? "border-accent bg-accent text-paper" : "border-ink"}`}>
+        <span className={`flex h-7 w-7 items-center justify-center border text-xs font-mono ${done ? "border-[#0667DC] bg-[#0667DC] text-white" : "border-[#322E25]"}`}>
           {done ? "✓" : n}
         </span>
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <h2 className="text-base font-bold font-mono uppercase tracking-wider">{title}</h2>
       </div>
       {children}
     </section>

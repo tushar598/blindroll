@@ -248,15 +248,65 @@ describe("EVM claim through the relayer", () => {
   });
 });
 
-describe("NEAR claim (recipient sends claim_near from their own wallet)", () => {
+describe("NEAR claim to the recipient's own account (gas-free: the relayer submits claim_near_relayed)", () => {
+  const scopeOf = (runKey: string) => ({ runKey, chain: "near", address: NEAR_ACCT });
+
+  it("needs no wallet call: the relayer sends only the leaf and proof, and the contract confirms", async () => {
+    const { deps, runKey, chain } = await setup();
+    const scope = scopeOf(runKey);
+    const p = await prepareClaim(deps, scope, { optionId: "near-usdc", receiver: NEAR_ACCT });
+    if (p.kind !== "near") throw new Error("expected a NEAR claim");
+    expect(p).toMatchObject({ relayed: true, call: null, simulated: false, summary: { receiver: NEAR_ACCT, gasFree: true } });
+    expect(await submitClaim(deps, scope, { claimId: p.claimId })).toEqual({ status: "confirmed", txHash: "8".repeat(44), simulated: false });
+    expect(chain.relayed).toHaveLength(1);
+    expect(chain.relayed[0]!.methodName).toBe("claim_near_relayed");
+    // No payout argument exists: the relayer cannot name a receiver.
+    expect(Object.keys(chain.relayed[0]!.args).sort()).toEqual(["leaf", "proof", "run_key"]);
+    expect(chain.relayed[0]!.args).toMatchObject({ run_key: runKey, leaf: { chain: "near", address: NEAR_ACCT, amount: "250500000" } });
+    expect(await claimStatus(deps, scope)).toMatchObject({ claimed: true, claim: { status: "confirmed", payoutKind: "near_ft", payoutTarget: NEAR_ACCT, txHash: "8".repeat(44) } });
+  });
+
+  it("cannot be submitted twice, and a failed relay can be retried with a new claim", async () => {
+    const { deps, runKey, chain } = await setup();
+    const scope = scopeOf(runKey);
+    chain.failRelay = true;
+    const p = await prepareClaim(deps, scope, { optionId: "near-usdc", receiver: NEAR_ACCT });
+    await expect(submitClaim(deps, scope, { claimId: p.claimId })).rejects.toMatchObject({ code: "claim_failed" });
+    await expect(submitClaim(deps, scope, { claimId: p.claimId })).rejects.toMatchObject({ code: "already_submitted" });
+    expect(await claimStatus(deps, scope)).toMatchObject({ claimed: false, claim: { status: "failed" } });
+    chain.failRelay = false;
+    const p2 = await prepareClaim(deps, scope, { optionId: "near-usdc", receiver: NEAR_ACCT });
+    expect((await submitClaim(deps, scope, { claimId: p2.claimId })).status).toBe("confirmed");
+    await expect(prepareClaim(deps, scope, { optionId: "near-usdc", receiver: NEAR_ACCT })).rejects.toMatchObject({ code: "already_claimed" });
+    expect(chain.relayed).toHaveLength(2);
+  });
+
+  it("is scoped to the verified wallet: another recipient's token cannot submit it", async () => {
+    const { deps, runKey, chain } = await setup();
+    const p = await prepareClaim(deps, scopeOf(runKey), { optionId: "near-usdc", receiver: NEAR_ACCT });
+    await expect(submitClaim(deps, { runKey, chain: "evm", address: EVM_ADDR }, { claimId: p.claimId })).rejects.toMatchObject({ code: "claim_not_found" });
+    expect(chain.relayed).toHaveLength(0);
+  });
+
+  it("is refused when the run is not claimable, before anything is relayed", async () => {
+    const { deps, runKey, chain } = await setup();
+    const p = await prepareClaim(deps, scopeOf(runKey), { optionId: "near-usdc", receiver: NEAR_ACCT });
+    chain.deadline = Date.now() - 1;
+    await expect(submitClaim(deps, scopeOf(runKey), { claimId: p.claimId })).rejects.toMatchObject({ code: "deadline_passed" });
+    expect(chain.relayed).toHaveLength(0);
+  });
+});
+
+describe("NEAR claim to another account (recipient sends claim_near from their own wallet)", () => {
   it("returns the contract call and confirms only once the contract shows the claim", async () => {
     const { deps, runKey, chain, db } = await setup();
     const scope = { runKey, chain: "near", address: NEAR_ACCT };
-    const p = await prepareClaim(deps, scope, { optionId: "near-usdc", receiver: NEAR_ACCT });
-    if (p.kind !== "near") throw new Error("expected a NEAR claim");
+    const p = await prepareClaim(deps, scope, { optionId: "near-usdc", receiver: "payee.testnet" });
+    if (p.kind !== "near" || p.relayed) throw new Error("expected a direct NEAR claim");
+    expect(p.summary).toMatchObject({ gasFree: false });
     expect(p.call).toMatchObject({
       contractId: config.contractId, methodName: "claim_near", gasTgas: 100, depositYocto: "0",
-      args: { run_key: runKey, leaf: { chain: "near", address: NEAR_ACCT, amount: "250500000" }, payout: { kind: "near_ft", receiver: NEAR_ACCT } },
+      args: { run_key: runKey, leaf: { chain: "near", address: NEAR_ACCT, amount: "250500000" }, payout: { kind: "near_ft", receiver: "payee.testnet" } },
     });
     expect(await submitClaim(deps, scope, { claimId: p.claimId, txHash: "7".repeat(44) })).toMatchObject({ status: "failed" });
     const row = db.$client.prepare("SELECT leaf_hash FROM run_rows WHERE address = ?").get(NEAR_ACCT) as { leaf_hash: string };

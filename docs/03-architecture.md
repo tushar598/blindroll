@@ -21,7 +21,7 @@
 │ + USDC NEP-141 │  └────────────────┘  └──────────────────┘  └─────────────────┘
 └────────────────┘
         ▲
-        │ relayer account submits claims / meta-transactions, pays gas
+        │ relayer account submits claims, pays gas
 ```
 
 | Component | Responsibility |
@@ -33,7 +33,7 @@
 | **packages/core** | Pure TypeScript logic shared by the API and tests: CSV parsing, rules, Merkle, canonical report, claim message builder, rail clients |
 | **NEAR AI Cloud** | OpenAI-compatible inference in TEEs; returns signed responses |
 | **1Click API** | Quotes and cross-chain delivery |
-| **Relayer** | A dedicated NEAR account with a small balance; submits claim transactions and NEP-366 delegate actions |
+| **Relayer** | A dedicated NEAR account with a small balance; submits claim transactions: `claim_evm` with the recipient's signature, `claim_near_relayed` for NEAR recipients (NEP-366 delegate actions are not used, see [07](07-wallet-verification-and-claims.md)) |
 | **Database** | Orgs, runs, encrypted rows, overrides, claims, payout status, audit log |
 
 ## Trust boundaries
@@ -42,7 +42,7 @@
 |---|---|---|
 | Contract | Custody, authorization, double-claim prevention | — |
 | Backend | Confidentiality of plaintext (MVP), building quotes, submitting txs | Moving funds without a valid signature or proof |
-| Relayer | Paying gas, liveness | Choosing payout targets (signatures bind them) |
+| Relayer | Paying gas, liveness; for NEAR leaves, *when* `claim_near_relayed` is sent | Choosing payout targets (EVM: the signature binds them; NEAR relayed: the contract pays only the leaf's own account) |
 | NEAR AI Cloud | Mapping suggestions | Payment decisions (code decides) |
 | 1Click | Delivery | Correct amount (checked via `minAmountOut`, status and refunds) |
 

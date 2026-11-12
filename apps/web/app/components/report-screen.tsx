@@ -123,16 +123,16 @@ async function runChecks(info: RunInfo): Promise<Result> {
 function Row({ label, value, mono = true }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div className="min-w-0">
-      <dt className="label">{label}</dt>
-      <dd className={`mt-0.5 break-all ${mono ? "num text-xs" : "text-sm"}`}>{value}</dd>
+      <dt className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60">{label}</dt>
+      <dd className={`mt-0.5 break-all ${mono ? "num text-xs text-[#322E25]" : "text-sm text-[#322E25]"}`}>{value}</dd>
     </div>
   );
 }
 
 const MARK: Record<Check["state"], { sign: string; cls: string; word: string }> = {
-  pass: { sign: "✓", cls: "text-accent", word: "Passed" },
-  fail: { sign: "✗", cls: "text-error", word: "Failed" },
-  info: { sign: "–", cls: "text-muted", word: "Note" },
+  pass: { sign: "✓", cls: "text-[#0667DC]", word: "Passed" },
+  fail: { sign: "✗", cls: "text-[#a3271f]", word: "Failed" },
+  info: { sign: "–", cls: "text-[#322E25]/60", word: "Note" },
 };
 
 export function ReportScreen() {
@@ -172,29 +172,29 @@ export function ReportScreen() {
     }
   }
 
-  if (!info) return <p className={`text-sm ${error ? "rounded-md bg-error-soft px-3 py-2 text-error" : "text-muted"}`}>{error ?? "Loading…"}</p>;
+  if (!info) return <p className={`text-sm font-mono ${error ? "border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-[#a3271f]" : "text-[#322E25]/60"}`}>{error ?? "Loading…"}</p>;
   const r = result?.v.report ?? null;
   const failed = result?.checks.filter((c) => c.state === "fail").length ?? 0;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6 font-mono">
       <div>
-        <p className="label">{info.orgName} · Report</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{info.runName}</h1>
-        <p className="mt-2 text-sm leading-6 text-muted">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-[#0667DC]">{info.orgName} · Report</p>
+        <h1 className="mt-1 text-2xl sm:text-3xl font-bold tracking-tight uppercase">{info.runName}</h1>
+        <p className="mt-2 text-sm leading-6 text-[#322E25]/70">
           The report records how this payroll run was prepared. It holds hashes and counts only: no names, addresses or per-person amounts.
           Its hash is stored on the contract, so it cannot be changed afterwards without the check below failing.
         </p>
       </div>
-      {error && <p className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">{error}</p>}
+      {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f]">{error}</p>}
 
-      <div className="card p-6">
+      <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="font-medium">
+            <p className="font-bold text-base">
               {!result ? "Checking…" : failed === 0 ? "All checks passed" : `${failed} check${failed === 1 ? "" : "s"} failed`}
             </p>
-            <p className="mt-0.5 text-xs text-muted">
+            <p className="mt-0.5 text-xs text-[#322E25]/60">
               Checked in your browser{result ? ` at ${new Date(result.at).toLocaleTimeString()}` : ""}: the hash and the signature are recomputed here, and the contract is read from a public NEAR RPC.
             </p>
           </div>
@@ -203,17 +203,17 @@ export function ReportScreen() {
           </button>
         </div>
         {result && (
-          <ul className="mt-5 divide-y divide-line border-t border-line">
+          <ul className="mt-5 divide-y divide-[#322E25]/10 border-t border-[#322E25]/15">
             {result.checks.map((c) => (
               <li key={c.title} className="flex gap-3 py-3 text-sm">
                 <span className={`w-4 shrink-0 text-base font-semibold leading-5 ${MARK[c.state].cls}`} aria-hidden>
                   {MARK[c.state].sign}
                 </span>
                 <div className="min-w-0">
-                  <p className="font-medium">
-                    {c.title} <span className={`ml-1 text-xs font-normal ${MARK[c.state].cls}`}>{MARK[c.state].word}</span>
+                  <p className="font-semibold text-xs uppercase tracking-wide">
+                    {c.title} <span className={`ml-1 text-[10px] font-normal ${MARK[c.state].cls}`}>{MARK[c.state].word}</span>
                   </p>
-                  <p className="mt-0.5 break-words text-xs leading-5 text-muted">{c.detail}</p>
+                  <p className="mt-0.5 break-words text-xs leading-5 text-[#322E25]/60">{c.detail}</p>
                 </div>
               </li>
             ))}
@@ -222,50 +222,50 @@ export function ReportScreen() {
       </div>
 
       {r && (
-        <div className="card p-6">
-          <p className="font-medium">What the report says</p>
+        <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6">
+          <p className="font-bold text-base uppercase tracking-tight">What the report says</p>
           <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
             <Row label="Uploaded CSV (sha256)" value={r.inputs.csv_sha256} />
             <Row label="Final table (sha256)" value={r.normalized.table_sha256} />
             <Row label="Merkle root" value={r.merkle.root} />
             <Row label="Report hash (sha256)" value={result!.v.sha256} />
-            <Row label="Total" mono={false} value={<span className="num">{usdc(r.normalized.total_amount)} USDC to {r.normalized.recipient_count} recipients</span>} />
-            <Row label="Rows in the file" mono={false} value={<span className="num">{r.inputs.row_count}</span>} />
+            <Row label="Total" mono={false} value={<span className="num font-semibold">{usdc(r.normalized.total_amount)} USDC to {r.normalized.recipient_count} recipients</span>} />
+            <Row label="Rows in the file" mono={false} value={<span className="num font-semibold">{r.inputs.row_count}</span>} />
             <Row label="Approval policy" mono={false} value={`${r.approval_policy.threshold} of ${r.approval_policy.approvers.length}: ${r.approval_policy.approvers.join(", ")}`} />
             <Row label="Prepared" mono={false} value={new Date(r.created_at).toLocaleString()} />
             <Row
               label="Contract"
-              value={<a className="underline" href={explorerAccount(info.network, info.contractId)} target="_blank" rel="noreferrer">{info.contractId}</a>}
+              value={<a className="text-[#0667DC] underline" href={explorerAccount(info.network, info.contractId)} target="_blank" rel="noreferrer">{info.contractId}</a>}
             />
             <Row
               label="Transaction that stored the hash"
               value={
                 info.createTx ? (
-                  <a className="underline" href={explorerTx(info.network, info.createTx)} target="_blank" rel="noreferrer">{info.createTx}</a>
+                  <a className="text-[#0667DC] underline" href={explorerTx(info.network, info.createTx)} target="_blank" rel="noreferrer">{info.createTx}</a>
                 ) : (
-                  <span className="text-muted">Not recorded{result && !("error" in result.chain) && result.chain.run ? " (the run is on the contract; see the check above)" : ""}</span>
+                  <span className="text-[#322E25]/50">Not recorded{result && !("error" in result.chain) && result.chain.run ? " (the run is on the contract; see the check above)" : ""}</span>
                 )
               }
             />
           </dl>
 
-          <p className="label mt-6">Rule checks ({r.rules.version})</p>
-          <p className="mt-1 text-sm">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-[#0667DC] mt-6 mb-1">Rule checks ({r.rules.version})</p>
+          <p className="text-sm">
             {r.rules.errors} errors, {r.rules.warnings} warning{r.rules.warnings === 1 ? "" : "s"}; {r.edits.count} edit{r.edits.count === 1 ? "" : "s"} to the uploaded file.
           </p>
           {r.rules.results.length > 0 && (
             <ul className="mt-2 space-y-1 text-sm">
               {r.rules.results.map((x, i) => (
                 <li key={i} className="flex flex-wrap gap-x-2">
-                  <span className="num text-xs">{x.rule_id}</span>
-                  <span className="text-muted">{x.overridden ? "accepted by an approver with a written reason" : "open"}</span>
+                  <span className="num text-xs font-semibold">{x.rule_id}</span>
+                  <span className="text-[#322E25]/60">{x.overridden ? "accepted by an approver with a written reason" : "open"}</span>
                 </li>
               ))}
             </ul>
           )}
-          {r.notes.length > 0 && <p className="mt-2 text-sm text-muted">Notes: {r.notes.join("; ")}.</p>}
+          {r.notes.length > 0 && <p className="mt-2 text-sm text-[#322E25]/60">Notes: {r.notes.join("; ")}.</p>}
 
-          <p className="label mt-6">Column mapping</p>
+          <p className="text-[10px] font-mono uppercase tracking-widest text-[#0667DC] mt-6 mb-1">Column mapping</p>
           {r.ai ? (
             <dl className="mt-2 grid gap-x-6 gap-y-3 sm:grid-cols-2">
               <Row label="Model (NEAR AI Cloud)" value={r.ai.model} />
@@ -276,27 +276,27 @@ export function ReportScreen() {
           ) : (
             <p className="mt-1 text-sm">Mapped by hand by an approver. No AI call was used.</p>
           )}
-          <p className="mt-3 text-xs leading-5 text-muted">
+          <p className="mt-3 text-xs leading-5 text-[#322E25]/60">
             The AI only proposed which CSV column is which. Amounts, addresses and every rule check are computed by code.
           </p>
 
           <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm">
-            <a className="font-medium text-accent underline" href={`/api/runs/${runKey}/report`} target="_blank" rel="noreferrer">Open the report JSON</a>
+            <a className="font-semibold text-[#0667DC] underline" href={`/api/runs/${runKey}/report`} target="_blank" rel="noreferrer">Open the report JSON</a>
           </div>
         </div>
       )}
 
       {me?.accountId && (
-        <div className="card p-6">
-          <p className="font-medium">Reconciled export</p>
-          <p className="mt-1 text-sm leading-6 text-muted">
+        <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6">
+          <p className="font-bold text-base uppercase tracking-tight">Reconciled export</p>
+          <p className="mt-1 text-sm leading-6 text-[#322E25]/70">
             One row per recipient: claimed, unclaimed, refunded or reopened, with the payout rail, destination and transaction hashes.
             Claimed status is read from the contract. For approvers only: the file holds names, addresses and amounts.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <a className="btn-quiet" href={`/api/runs/${runKey}/export?format=csv`}>Download CSV</a>
             <a className="btn-quiet" href={`/api/runs/${runKey}/export?format=json`}>Download JSON</a>
-            <Link className="self-center text-sm underline" href={`/runs/${runKey}`}>Back to the run</Link>
+            <Link className="self-center text-sm underline text-[#0667DC]" href={`/runs/${runKey}`}>Back to the run</Link>
           </div>
         </div>
       )}

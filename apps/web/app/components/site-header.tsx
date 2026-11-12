@@ -8,17 +8,30 @@ export function SiteHeader() {
   // Recipients on a claim page are not approvers: no approver sign-in there.
   const onClaimPage = usePathname().startsWith("/claim/");
   return (
-    <header className="border-b border-line bg-card">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-5 py-3">
-        <Link href="/" className="flex items-baseline gap-3">
-          <span className="text-lg font-semibold tracking-tight">Blindroll</span>
-          <span className="hidden text-sm text-muted sm:inline">claim-based payroll on NEAR</span>
+    <header className="sticky top-0 z-40 border-b border-[#322E25]/15 backdrop-blur-sm bg-[#E9E1CD]/95">
+      <div className="mx-auto flex w-full max-w-[1360px] h-14 items-center justify-between gap-4 px-5 sm:px-8">
+        <Link href="/" className="inline-flex items-center gap-2.5 text-sm font-mono font-bold tracking-tight text-[#322E25] whitespace-nowrap shrink-0">
+          <span
+            aria-hidden="true"
+            className="inline-flex items-center justify-center w-5 h-5 font-black text-base tracking-tighter text-[#322E25]"
+          >
+            ⋈
+          </span>
+          <span className="text-base font-bold tracking-tight uppercase">
+            Blindroll
+          </span>
+          <span className="text-[#322E25]/30 font-normal">
+            |
+          </span>
+          <span className="text-[11px] tracking-widest uppercase text-[#322E25]/70 hidden sm:inline">
+            PAYROLL
+          </span>
         </Link>
         <div className="flex items-center gap-3 text-sm">
-          {me && <span className="num rounded border border-line px-2 py-0.5 text-xs uppercase text-muted">{me.network}</span>}
+          {me && <span className="font-mono border border-[#322E25]/25 px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60">{me.network}</span>}
           {onClaimPage ? null : me?.accountId ? (
             <>
-              <span className="num hidden sm:inline">{me.accountId}</span>
+              <span className="font-mono text-xs hidden sm:inline text-[#322E25]/70">{me.accountId}</span>
               <button className="btn-quiet" onClick={() => void signOut()} disabled={busy}>
                 Sign out
               </button>

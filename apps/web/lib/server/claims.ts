@@ -258,7 +258,8 @@ async function assertClaimable(deps: ClaimDeps, run: RunRecord, row: RowRecord) 
 
 /**
  * Fixes the payout target and returns what the recipient must sign.
- * EVM: the exact claim message for personal_sign. NEAR: the claim_near call for their own wallet.
+ * EVM: the exact claim message for personal_sign. NEAR: nothing to sign when the USDC goes to the
+ * recipient's own account (relayed, gas-free); otherwise the claim_near call for their own wallet.
  *
  * `near-usdc`: real; `receiver` is the NEAR account that gets the USDC.
  * `oneclick:<chain>:<symbol>`: TESTNET SIMULATION for EVM recipients. The signed payout target is
@@ -321,11 +322,24 @@ export async function prepareClaim(deps: ClaimDeps, scope: ViewScope, input: { o
     return { kind: "evm" as const, claimId, message, expiresAtMs, summary, simulated: claim.simulated };
   }
   const claimId = deps.db.insert(claims).values(base).returning({ id: claims.id }).get().id;
+  if (isRelayedNearClaim(row, claim)) {
+    // Gas-free: the relayer submits claim_near_relayed, which can only pay the leaf's own account.
+    // Nothing to sign: the recipient already proved control of that account with the view signature.
+    return { kind: "near" as const, claimId, summary: { ...summary, gasFree: true }, simulated: false, relayed: true as const, call: null };
+  }
   return {
-    kind: "near" as const, claimId, summary, simulated: claim.simulated,
-    // The recipient sends this from their own wallet (the contract requires predecessor == recipient).
+    kind: "near" as const, claimId, summary: { ...summary, gasFree: false }, simulated: claim.simulated, relayed: false as const,
+    // Another receiver: the recipient sends this from their own wallet and pays the gas (the contract requires predecessor == recipient).
     call: { contractId: run.contractId, methodName: "claim_near", args: { run_key: run.runKey, leaf, proof, payout: { kind: "near_ft", receiver: claim.payoutTarget } }, gasTgas: 100, depositYocto: "0" },
   };
+}
+
+/**
+ * A NEAR recipient who takes USDC on NEAR to their OWN account is claimed for by the relayer
+ * (`claim_near_relayed`, docs/04): the contract pays only the leaf's account, so no signature is needed.
+ */
+function isRelayedNearClaim(row: { chain: string; address: string }, claim: { payoutKind: string; payoutTarget: string }): boolean {
+  return row.chain === "near" && claim.payoutKind === "near_ft" && claim.payoutTarget === row.address;
 }
 
 /** The contract's `payout` argument for a stored claim. */
@@ -340,7 +354,9 @@ function audit(db: Db, actor: string, action: string, runId: number, data: objec
 /**
  * EVM: checks the signature, then the relayer submits claim_evm and pays the gas. The contract
  * re-checks everything, so the relayer cannot change the payout target.
- * NEAR: the recipient already sent claim_near; this records the transaction once the contract confirms it.
+ * NEAR to the recipient's own account: the relayer submits claim_near_relayed and pays the gas.
+ * NEAR to another account: the recipient already sent claim_near; this records the transaction
+ * once the contract confirms it.
  */
 export async function submitClaim(deps: ClaimDeps, scope: ViewScope, input: { claimId: number; signature?: string; txHash?: string }) {
   const { db } = deps;
@@ -349,7 +365,7 @@ export async function submitClaim(deps: ClaimDeps, scope: ViewScope, input: { cl
   const claim = db.select().from(claims).where(and(eq(claims.id, input.claimId), eq(claims.rowId, row.id))).get();
   if (!claim) throw new HttpError(404, "claim_not_found", "Prepare the claim again");
 
-  if (row.chain === "near") {
+  if (row.chain === "near" && !isRelayedNearClaim(row, claim)) {
     const claimed = await isClaimedOnChain(deps, run, row);
     const txHash = input.txHash && /^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(input.txHash) ? input.txHash : null;
     db.update(claims).set({ status: claimed ? "confirmed" : "failed", claimTx: txHash, error: claimed ? null : "The contract does not show this payout as claimed", updatedAt: nowIso() }).where(eq(claims.id, claim.id)).run();
@@ -359,17 +375,41 @@ export async function submitClaim(deps: ClaimDeps, scope: ViewScope, input: { cl
   }
 
   if (claim.status !== "prepared") throw new HttpError(409, "already_submitted", "This claim was already submitted; prepare a new one if it failed");
-  if (claim.message === null || claim.expiresAtMs === null) throw new HttpError(500, "bad_claim", "The prepared claim is incomplete");
-  if (Date.now() > claim.expiresAtMs - 30_000) throw new HttpError(409, "expired", "The claim expired before it was signed; start again");
-  const signature = (input.signature ?? "").toLowerCase();
-  if (!/^0x[0-9a-f]{130}$/.test(signature)) throw new HttpError(400, "bad_signature", "The signature must be 65 bytes of hex");
-  let ok = false;
-  try {
-    ok = await verifyMessage({ address: row.address as `0x${string}`, message: claim.message, signature: signature as `0x${string}` });
-  } catch {
-    ok = false;
+  const leafArgs = {
+    run_key: run.runKey,
+    leaf: { chain: row.chain, address: row.address, amount: row.amount, salt_hex: row.saltHex },
+    proof: JSON.parse(row.proofJson) as string[],
+  };
+  let call: { methodName: string; args: object };
+  if (row.chain === "near") {
+    // Gas-free NEAR claim. The view token proves the caller controls the leaf's account; the
+    // contract accepts this method only from the relayer and pays only that account.
+    if (Date.now() - Date.parse(claim.createdAt) > CLAIM_TTL_MS) throw new HttpError(409, "expired", "The claim expired before it was confirmed; start again");
+    call = { methodName: "claim_near_relayed", args: leafArgs };
+  } else {
+    if (claim.message === null || claim.expiresAtMs === null) throw new HttpError(500, "bad_claim", "The prepared claim is incomplete");
+    if (Date.now() > claim.expiresAtMs - 30_000) throw new HttpError(409, "expired", "The claim expired before it was signed; start again");
+    const signature = (input.signature ?? "").toLowerCase();
+    if (!/^0x[0-9a-f]{130}$/.test(signature)) throw new HttpError(400, "bad_signature", "The signature must be 65 bytes of hex");
+    let ok = false;
+    try {
+      ok = await verifyMessage({ address: row.address as `0x${string}`, message: claim.message, signature: signature as `0x${string}` });
+    } catch {
+      ok = false;
+    }
+    if (!ok) throw new HttpError(401, "bad_signature", "The claim signature does not match this wallet");
+    call = {
+      methodName: "claim_evm",
+      args: {
+        ...leafArgs,
+        payout: payoutArg(claim),
+        destination_asset: claim.destinationAsset,
+        destination_address: claim.destinationAddress,
+        expires_at_ms: claim.expiresAtMs,
+        signature_hex: signature,
+      },
+    };
   }
-  if (!ok) throw new HttpError(401, "bad_signature", "The claim signature does not match this wallet");
   await assertClaimable(deps, run, row);
 
   // Take the claim atomically so a double click cannot submit twice.
@@ -379,21 +419,7 @@ export async function submitClaim(deps: ClaimDeps, scope: ViewScope, input: { cl
   let txHash: string | null = null;
   let error: string | null = null;
   try {
-    const outcome = await deps.relay({
-      receiverId: run.contractId,
-      methodName: "claim_evm",
-      args: {
-        run_key: run.runKey,
-        leaf: { chain: row.chain, address: row.address, amount: row.amount, salt_hex: row.saltHex },
-        proof: JSON.parse(row.proofJson) as string[],
-        payout: payoutArg(claim),
-        destination_asset: claim.destinationAsset,
-        destination_address: claim.destinationAddress,
-        expires_at_ms: claim.expiresAtMs,
-        signature_hex: signature,
-      },
-      gasTgas: 100,
-    });
+    const outcome = await deps.relay({ receiverId: run.contractId, ...call, gasTgas: 100 });
     txHash = outcome.txHash || null;
     error = outcome.failure;
   } catch (err) {

@@ -231,6 +231,14 @@ describe("demo org approvers from DEMO_ORG_APPROVERS", () => {
     expect(() => demoOrgApprovers({ DEMO_ORG_APPROVERS: "a.testnet,Bad Account" })).toThrow("invalid");
   });
 
+  it("offers Meteor only by default; NEAR_WALLETS switches on known wallets and refuses unknown ones", async () => {
+    const { enabledNearWallets } = await import("../lib/server/config");
+    expect(enabledNearWallets({})).toEqual(["meteor-wallet"]);
+    expect(enabledNearWallets({ NEAR_WALLETS: " intear-wallet , sender,intear-wallet" })).toEqual(["meteor-wallet", "intear-wallet", "sender"]);
+    expect(enabledNearWallets({ NEAR_WALLETS: "meteor-wallet" })).toEqual(["meteor-wallet"]);
+    expect(() => enabledNearWallets({ NEAR_WALLETS: "phantom" })).toThrow("unknown wallet ID");
+  });
+
   it("replaces the seeded approvers when the configuration changes", async () => {
     const { openDb, orgApprovers } = await import("../lib/server/db");
     const file = join(mkdtempSync(join(tmpdir(), "blindroll-")), "t.sqlite");

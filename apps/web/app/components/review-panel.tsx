@@ -32,7 +32,7 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
 
   return (
     <div className="space-y-4">
-      <div className="card grid grid-cols-2 divide-line sm:grid-cols-4 sm:divide-x">
+      <div className="border border-[#322E25]/15 grid grid-cols-2 divide-x divide-[#322E25]/10 sm:grid-cols-4">
         <Stat label="Recipients" value={String(s.rowCount)} />
         <Stat label="Total (USDC)" value={s.totalDisplay} />
         <Stat label="Errors" value={String(s.errorCount)} tone={s.errorCount > 0 ? "error" : undefined} hint="must be fixed or removed" />
@@ -40,49 +40,49 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
       </div>
 
       {runLevel.map((f) => (
-        <p key={f.id} className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">{f.message}</p>
+        <p key={f.id} className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{f.message}</p>
       ))}
-      {error && <p className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">{error}</p>}
+      {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{error}</p>}
 
-      <div className="card overflow-x-auto">
-        <table className="w-full min-w-[820px] text-left text-sm">
-          <thead className="border-b border-line">
-            <tr className="label">
-              <th className="px-4 py-2.5 font-medium">Row</th>
-              <th className="px-4 py-2.5 font-medium">Recipient</th>
-              <th className="px-4 py-2.5 font-medium">Wallet</th>
-              <th className="px-4 py-2.5 text-right font-medium">Amount (USDC)</th>
-              <th className="px-4 py-2.5 font-medium">Checks</th>
+      <div className="border border-[#322E25]/15 overflow-x-auto">
+        <table className="w-full min-w-[820px] text-left text-sm font-mono">
+          <thead className="border-b border-[#322E25]/10">
+            <tr>
+              <th className="px-4 py-2.5 text-[10px] uppercase tracking-widest text-[#322E25]/60 font-normal">Row</th>
+              <th className="px-4 py-2.5 text-[10px] uppercase tracking-widest text-[#322E25]/60 font-normal">Recipient</th>
+              <th className="px-4 py-2.5 text-[10px] uppercase tracking-widest text-[#322E25]/60 font-normal">Wallet</th>
+              <th className="px-4 py-2.5 text-[10px] uppercase tracking-widest text-[#322E25]/60 font-normal text-right">Amount (USDC)</th>
+              <th className="px-4 py-2.5 text-[10px] uppercase tracking-widest text-[#322E25]/60 font-normal">Checks</th>
               {editable && <th className="px-4 py-2.5" />}
             </tr>
           </thead>
-          <tbody className="divide-y divide-line">
+          <tbody>
             {run.rows.map((r) => {
               const fs = byRow.get(r.rowNumber) ?? [];
               const worst = fs.some((f) => f.severity === "error") ? "error" : fs.some((f) => !f.overridden) ? "warn" : null;
               return (
-                <tr key={r.rowNumber} className={worst === "error" ? "bg-error-soft/50" : worst === "warn" ? "bg-warn-soft/50" : ""}>
-                  <td className="num px-4 py-3 align-top text-muted">{r.rowNumber}</td>
+                <tr key={r.rowNumber} className={`border-b border-[#322E25]/10 ${worst === "error" ? "bg-[#f8e6e2]/50" : worst === "warn" ? "bg-[#fbf0d6]/50" : ""}`}>
+                  <td className="num px-4 py-3 align-top text-[#322E25]/60">{r.rowNumber}</td>
                   <td className="px-4 py-3 align-top">
-                    <p className="font-medium">{r.name || <span className="text-muted">no name</span>}</p>
-                    <p className="text-xs text-muted">{[r.role, r.memo].filter(Boolean).join(" · ")}</p>
+                    <p className="font-medium">{r.name || <span className="text-[#322E25]/40">no name</span>}</p>
+                    <p className="text-xs text-[#322E25]/60">{[r.role, r.memo].filter(Boolean).join(" · ")}</p>
                   </td>
                   <td className="px-4 py-3 align-top">
                     <p className="num break-all text-xs">{r.address ?? r.raw.address ?? ""}</p>
-                    <p className="text-xs text-muted">{r.chain ?? "unknown chain"}</p>
+                    <p className="text-xs text-[#322E25]/60">{r.chain ?? "unknown chain"}</p>
                   </td>
                   <td className="num px-4 py-3 text-right align-top">{r.amountDisplay ?? <span className="text-error">{r.raw.amount || "missing"}</span>}</td>
                   <td className="px-4 py-3 align-top">
-                    {fs.length === 0 && <span className="text-accent">✓ clean</span>}
+                    {fs.length === 0 && <span className="text-[#0667DC] font-medium">✓ clean</span>}
                     <ul className="space-y-1.5">
                       {fs.map((f) => (
                         <li key={f.id}>
-                          <span className={f.severity === "error" ? "text-error" : f.overridden ? "text-muted" : "text-warn"}>
+                          <span className={f.severity === "error" ? "text-error" : f.overridden ? "text-[#322E25]/60" : "text-warn"}>
                             {f.severity === "error" ? "Error" : f.overridden ? "Accepted" : "Warning"}: {f.message}
                           </span>
-                          {f.overridden && <span className="block text-xs text-muted">Reason: {f.overrideReason}</span>}
+                          {f.overridden && <span className="block text-xs text-[#322E25]/60">Reason: {f.overrideReason}</span>}
                           {editable && f.severity === "warning" && !f.overridden && (
-                            <button className="ml-2 text-xs font-medium text-accent underline" onClick={() => setAction({ kind: "override", finding: f })}>
+                            <button className="ml-2 text-xs font-mono font-medium text-[#0667DC] hover:underline" onClick={() => setAction({ kind: "override", finding: f })}>
                               Accept with a reason
                             </button>
                           )}
@@ -91,9 +91,9 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
                     </ul>
                   </td>
                   {editable && (
-                    <td className="whitespace-nowrap px-4 py-3 text-right align-top text-xs">
-                      <button className="font-medium underline" onClick={() => setAction({ kind: "edit", row: r })}>Edit</button>
-                      <button className="ml-3 font-medium text-error underline" onClick={() => setAction({ kind: "remove", rowNumber: r.rowNumber })}>Remove</button>
+                    <td className="whitespace-nowrap px-4 py-3 text-right align-top">
+                      <button className="text-xs font-mono font-medium text-[#0667DC] hover:underline" onClick={() => setAction({ kind: "edit", row: r })}>Edit</button>
+                      <button className="ml-3 text-xs font-mono font-medium text-[#a3271f] hover:underline" onClick={() => setAction({ kind: "remove", rowNumber: r.rowNumber })}>Remove</button>
                     </td>
                   )}
                 </tr>
@@ -115,25 +115,25 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
       )}
 
       {run.edits.length > 0 && (
-        <details className="card p-4 text-sm">
-          <summary className="cursor-pointer font-medium">Change log ({run.edits.length})</summary>
-          <ul className="mt-3 space-y-1.5 text-muted">
+        <details className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-4 text-sm font-mono">
+          <summary className="cursor-pointer font-mono font-medium">Change log ({run.edits.length})</summary>
+          <ul className="mt-3 space-y-1.5 text-[#322E25]/70">
             {run.edits.map((e, i) => (
               <li key={i}>
-                <span className="num text-xs">{new Date(e.at).toLocaleString()}</span> · {e.by} ·{" "}
-                {e.kind === "remove" ? `removed row ${e.rowNumber} (${e.reason})` : `set “${e.column}” of row ${e.rowNumber} to “${e.value}”`}
+                <span className="text-xs font-mono break-all text-[#322E25]/70">{new Date(e.at).toLocaleString()}</span> · {e.by} ·{" "}
+                {e.kind === "remove" ? `removed row ${e.rowNumber} (${e.reason})` : `set "${e.column}" of row ${e.rowNumber} to "${e.value}"`}
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-xs text-muted">Only the hash of this log goes into the report.</p>
+          <p className="mt-3 text-xs font-mono break-all text-[#322E25]/60">Only the hash of this log goes into the report.</p>
         </details>
       )}
 
       {editable ? (
-        <div className="card flex flex-wrap items-end justify-between gap-4 p-5">
+        <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-5 flex flex-wrap items-end justify-between gap-4 font-mono">
           <div className="text-sm leading-6">
-            <p className="font-medium">Finalize</p>
-            <p className="text-muted">
+            <p className="font-mono font-medium">Finalize</p>
+            <p className="text-[#322E25]/70">
               Locks the table, builds the Merkle root and the report. After this the rows cannot change; a mistake needs a new run.
             </p>
           </div>
@@ -147,15 +147,15 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
             </button>
           </div>
           {!s.canFinalize && (
-            <p className="w-full text-sm text-muted">
+            <p className="w-full text-sm text-[#322E25]/60">
               {s.errorCount > 0 ? `Fix or remove the ${s.errorCount} row(s) with errors first.` : s.openWarningCount > 0 ? `Accept the ${s.openWarningCount} open warning(s) with a reason first.` : "The run has no rows."}
             </p>
           )}
         </div>
       ) : (
         run.finalized && (
-          <div className="card p-5 text-sm">
-            <p className="font-medium">Finalized {new Date(run.finalized.finalizedAt).toLocaleString()}</p>
+          <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-5 text-sm font-mono">
+            <p className="font-mono font-medium">Finalized {new Date(run.finalized.finalizedAt).toLocaleString()}</p>
             <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
               <Hash label="Merkle root" value={run.finalized.merkleRoot} />
               <Hash label="Report hash (sha256)" value={run.finalized.reportSha256} />
@@ -168,10 +168,10 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
                 <dd className="mt-0.5">{new Date(run.finalized.claimDeadlineMs).toLocaleString()}</dd>
               </div>
             </dl>
-            <a className="mt-4 inline-block font-medium text-accent underline" href={`/runs/${run.runKey}/report`}>
+            <a className="mt-4 inline-block font-mono font-medium text-[#0667DC] hover:underline" href={`/runs/${run.runKey}/report`}>
               Verify the report and export
             </a>
-            <span className="ml-2 text-muted">(the report is public: it holds no names, addresses or per-person amounts)</span>
+            <span className="ml-2 text-[#322E25]/60">(the report is public: it holds no names, addresses or per-person amounts)</span>
           </div>
         )
       )}
@@ -182,8 +182,8 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
 function Stat({ label, value, tone, hint }: { label: string; value: string; tone?: "error" | "warn"; hint?: string }) {
   return (
     <div className="px-5 py-4">
-      <p className="label">{label}</p>
-      <p className={`num mt-1 text-xl ${tone === "error" ? "text-error" : tone === "warn" ? "text-warn" : ""}`}>{value}</p>
+      <p className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60">{label}</p>
+      <p className={`text-xl font-mono font-bold tabular-nums mt-1 ${tone === "error" ? "text-error" : tone === "warn" ? "text-warn" : ""}`}>{value}</p>
       {hint && tone && <p className="text-xs text-muted">{hint}</p>}
     </div>
   );
@@ -193,7 +193,7 @@ function Hash({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="label">{label}</dt>
-      <dd className="num mt-0.5 break-all text-xs">{value}</dd>
+      <dd className="text-xs font-mono break-all text-[#322E25]/70 mt-0.5">{value}</dd>
     </div>
   );
 }
@@ -209,7 +209,7 @@ function ActionForm({
 }) {
   const [reason, setReason] = useState("");
   const m = run.mapping!.mapping;
-  const editCols = action.kind === "edit" ? ([["address", m.address], ["amount", m.amount], ["currency", m.currency], ["chain", m.chain]] as const).filter((c): c is [typeof c[0], string] => c[1] !== null) : [];
+  const editCols = action.kind === "edit" ? (([["address", m.address], ["amount", m.amount], ["currency", m.currency], ["chain", m.chain]] as const).filter((c): c is [typeof c[0], string] => c[1] !== null)) : [];
   const [values, setValues] = useState<Record<string, string>>(() =>
     action.kind === "edit" ? Object.fromEntries(editCols.map(([f, col]) => [col, action.row.raw[f]])) : {},
   );
@@ -224,11 +224,11 @@ function ActionForm({
   }
 
   return (
-    <div className="card border-ink p-5">
+    <div className="border-2 border-[#322E25] bg-[#E1D7C0]/60 p-5">
       {action.kind === "edit" ? (
         <>
-          <p className="font-medium">Edit row {action.row.rowNumber}</p>
-          <p className="mt-1 text-sm text-muted">Changes are logged, and the whole table is checked again.</p>
+          <p className="font-mono font-medium">Edit row {action.row.rowNumber}</p>
+          <p className="mt-1 text-sm text-[#322E25]/60 font-mono">Changes are logged, and the whole table is checked again.</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {editCols.map(([, col]) => (
               <div key={col}>
@@ -240,7 +240,7 @@ function ActionForm({
         </>
       ) : (
         <>
-          <p className="font-medium">
+          <p className="font-mono font-medium">
             {action.kind === "remove" ? `Remove row ${action.rowNumber} from this run` : `Accept warning on row ${action.finding.rowNumber}: ${action.finding.message}`}
           </p>
           <label className="label mt-3 block" htmlFor="reason">Reason (logged; only its hash goes into the report)</label>

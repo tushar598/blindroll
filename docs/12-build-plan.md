@@ -11,7 +11,7 @@ The hackathon runs Nov 1–14, 2026 (per other teams' READMEs; confirm the exact
 5. Claim page: EVM wallet signs view → sees only own row.
 6. Payout options board with **real 1Click dry quotes**.
 7. EVM claim: sign → relayer → `claim_evm` → real testnet transfer (`near-usdc` to a NEAR account, or `oneclick` simulated).
-8. NEAR claim: `claim_near` (meta-transaction if the wallet supports it, otherwise direct).
+8. NEAR claim: gas-free through the relayer with `claim_near_relayed` (pays only the leaf's own account; built 2026-11-12 after the NEP-366 spike, see [07](07-wallet-verification-and-claims.md)); `claim_near` from the recipient's wallet for any other receiver.
 9. One failure path shown: a payout marked refunded → `reopen_claim` → claim again.
 10. Report verify page: report hash matches the contract; AI signature verifies.
 11. Reconciled CSV export.
@@ -45,7 +45,7 @@ Before the app is deployed for judges or users, every on-chain step must happen 
 2. **"Fund run" button.** *Done.* Sends `ft_transfer_call` (msg `{"fund_run":"<run_key>"}`) from the signed-in approver's wallet and shows that wallet's USDC balance (read by the browser from a public RPC).
 3. **"Get test USDC" button (testnet only).** *Done.* Mints the missing amount of mUSDC to the signed-in wallet. Not rendered when the run's network is `mainnet`; the server's `assertNetworkConfig` still runs at startup.
 4. **No CLI commands in the UI.** *Done.* The copyable commands render only when `NODE_ENV=development`, labelled "Development only"; a production build never shows them.
-5. **More wallets.** *Not done.* Only Meteor is wired. Depends on the gas-free NEAR claim decision (see `HANDOFF.md`): Wallet Selector's Meteor module cannot sign delegate actions, Meteor's own SDK can.
+5. **More wallets.** *Wired, off by default (2026-11-12).* Intear and Sender load through Wallet Selector and appear in a wallet picker only when the optional env `NEAR_WALLETS` lists them (`intear-wallet`, `sender`); they have not been tested in a browser. Meteor is always on. MyNearWallet is left out (redirect wallet). The gas-free NEAR claim is settled (2026-11-12): it uses `claim_near_relayed`, which needs only a NEP-413 message signature from the wallet, so any Wallet Selector wallet that supports `signMessage` fits the claim path.
 6. [02-user-flows.md](02-user-flows.md) and `HANDOFF.md` are updated when 1 and 5 are closed.
 
 One Meteor connection is remembered per browser for this site. Wallet-sent transactions first check that the wallet is connected as the expected signer and ask to reconnect if it is not, so two approvers (or an approver and a recipient) can share a browser by switching accounts.

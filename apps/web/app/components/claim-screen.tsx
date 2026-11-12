@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { buildViewMessage } from "@blindroll/core";
 import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { type EvmWallet, connectEvm, discoverEvmWallets, personalSign } from "@/lib/client/evm";
-import { callContract, connectWallet, currentWalletAccount, disconnectWallet, explorerTx, isWalletAccountError, signInMessage } from "@/lib/client/wallet";
+import { callContract, configureWallets, connectWallet, currentWalletAccount, disconnectWallet, explorerTx, isWalletAccountError, signInMessage } from "@/lib/client/wallet";
+import { NearWalletChoice, useNearWalletChoice } from "./near-wallet-choice";
 import { SimulatedBadge } from "./payouts-panel";
 
 interface RunInfo {
@@ -16,6 +17,8 @@ interface RunInfo {
   network: string;
   contractId: string;
   tokenId: string;
+  /** NEAR wallet IDs this deployment offers (Meteor always). */
+  wallets?: string[];
 }
 interface ClaimInfo {
   status: string;
@@ -68,7 +71,9 @@ interface Summary {
 }
 type Prepared =
   | { kind: "evm"; claimId: number; message: string; expiresAtMs: number; summary: Summary }
-  | { kind: "near"; claimId: number; summary: Summary; call: { contractId: string; methodName: string; args: object; gasTgas: number; depositYocto: string } };
+  // relayed: the relayer submits the claim and pays the gas (USDC on NEAR to the recipient's own account).
+  | { kind: "near"; claimId: number; summary: Summary; relayed: true; call: null }
+  | { kind: "near"; claimId: number; summary: Summary; relayed: false; call: { contractId: string; methodName: string; args: object; gasTgas: number; depositYocto: string } };
 
 type Signer = { chain: "evm"; wallet: EvmWallet; address: string } | { chain: "near"; address: string };
 
@@ -87,7 +92,8 @@ export function ClaimScreen() {
   const [loadedAt, setLoadedAt] = useState(0);
   const [evmWallets, setEvmWallets] = useState<EvmWallet[] | null>(null);
   const [signer, setSigner] = useState<Signer | null>(null);
-  /** The NEAR account Meteor remembers for this site (it may be left over from another page). */
+  const nearWallet = useNearWalletChoice();
+  /** The NEAR account the chosen wallet remembers for this site (it may be left over from another page). */
   const [rememberedNear, setRememberedNear] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [row, setRow] = useState<Row | null>(null);
@@ -104,6 +110,7 @@ export function ClaimScreen() {
     api<RunInfo>(`/api/claim/${runKey}`)
       .then((r) => {
         if (!live) return;
+        configureWallets(r.wallets);
         setInfo(r);
         setLoadedAt(Date.now());
         return currentWalletAccount(r.network).then((a) => live && setRememberedNear(a));
@@ -138,11 +145,11 @@ export function ClaimScreen() {
       await view(kind);
     } catch (err) {
       if (kind.chain === "near" && isWalletAccountError(err)) {
-        // Meteor no longer has the remembered account (e.g. another account is active in the wallet).
+        // The wallet no longer has the remembered account (e.g. another account is active in the wallet).
         await disconnectWallet(info.network);
         setRememberedNear(null);
         setSigner(null);
-        setError("Meteor could not use the remembered account, so it was disconnected. Connect again and choose the account you were paid at.");
+        setError(`${nearWallet.label} could not use the remembered account, so it was disconnected. Connect again and choose the account you were paid at.`);
       } else {
         setError(errorMessage(err));
       }
@@ -165,7 +172,7 @@ export function ClaimScreen() {
     setError(null);
   }
 
-  /** NEAR only: disconnect Meteor, then connect again so the wallet asks which account to use. */
+  /** NEAR only: disconnect the wallet, then connect again so it asks which account to use. */
   async function switchNearAccount() {
     resetView();
     await connectAndView({ chain: "near", fresh: true });
@@ -213,6 +220,8 @@ export function ClaimScreen() {
       if (prepared.kind === "evm" && signer.chain === "evm") {
         const signature = await personalSign(signer.wallet, signer.address, prepared.message);
         await api(`/api/claim/${runKey}/submit`, { token, json: { claimId: prepared.claimId, signature } });
+      } else if (prepared.kind === "near" && prepared.relayed) {
+        await api(`/api/claim/${runKey}/submit`, { token, json: { claimId: prepared.claimId } });
       } else if (prepared.kind === "near") {
         const { txHash } = await callContract(info.network, { signerId: signer.address, receiverId: prepared.call.contractId, methodName: prepared.call.methodName, args: prepared.call.args, gasTgas: prepared.call.gasTgas, depositYocto: prepared.call.depositYocto });
         await api(`/api/claim/${runKey}/submit`, { token, json: { claimId: prepared.claimId, txHash } });
@@ -224,8 +233,8 @@ export function ClaimScreen() {
     if (token) api<Row>(`/api/claim/${runKey}/status`, { token }).then(setRow).catch(() => undefined);
   }
 
-  if (loadError) return <p className="mx-auto max-w-xl rounded-md bg-error-soft px-3 py-2 text-sm text-error">{loadError}</p>;
-  if (!info) return <p className="text-sm text-muted">Loading…</p>;
+  if (loadError) return <p className="mx-auto max-w-xl border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{loadError}</p>;
+  if (!info) return <p className="text-sm font-mono text-[#322E25]/70">Loading…</p>;
 
   const deadlinePassed = loadedAt > info.claimDeadlineMs;
   const open = info.status === "active" && !deadlinePassed;
@@ -233,19 +242,19 @@ export function ClaimScreen() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <p className="label">{info.orgName}</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{info.runName}</h1>
-        <p className="mt-2 text-sm text-muted">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60">{info.orgName}</p>
+        <h1 className="mt-1 text-2xl font-bold uppercase tracking-tight">{info.runName}</h1>
+        <p className="text-sm font-mono text-[#322E25]/70 leading-6 mt-2">
           {open ? `Claims are open until ${new Date(info.claimDeadlineMs).toLocaleString()}.` : deadlinePassed ? "The claim deadline has passed." : `Claims are not open (the run is ${info.status}).`}
           {info.network !== "mainnet" && " This is a testnet run: the token is test USDC with no real value."}
         </p>
       </div>
-      {error && <p className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">{error}</p>}
+      {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{error}</p>}
 
       {!row && (
-        <div className="card p-6">
-          <p className="font-medium">See your payout</p>
-          <p className="mt-1 text-sm leading-6 text-muted">
+        <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6">
+          <p className="font-bold font-mono uppercase tracking-tight">See your payout</p>
+          <p className="mt-1 text-sm font-mono text-[#322E25]/70 leading-6">
             Connect the wallet you were paid at and sign a short message. It proves the address is yours; it is not a transaction and costs no gas.
             You will see only your own row.
           </p>
@@ -257,14 +266,17 @@ export function ClaimScreen() {
             ))}
             {!rememberedNear && (
               <button className="btn-quiet" disabled={busy !== null} onClick={() => void connectAndView({ chain: "near" })}>
-                Meteor wallet (NEAR)
+                {nearWallet.label} wallet (NEAR)
               </button>
             )}
           </div>
+          <div className="mt-3">
+            <NearWalletChoice choice={nearWallet} disabled={busy !== null} onChange={() => void currentWalletAccount(info.network).then(setRememberedNear)} />
+          </div>
           {rememberedNear && (
-            <div className="mt-4 rounded-md border border-line p-4 text-sm">
+            <div className="mt-4 border border-[#322E25]/15 p-4 text-sm font-mono">
               <p>
-                Meteor wallet (NEAR) is connected as <span className="num break-all">{rememberedNear}</span>
+                {nearWallet.label} wallet (NEAR) is connected as <span className="break-all text-xs font-mono">{rememberedNear}</span>
               </p>
               <div className="mt-3 flex flex-wrap gap-3">
                 <button className="btn-quiet" disabled={busy !== null} onClick={() => void connectAndView({ chain: "near" })}>
@@ -276,10 +288,10 @@ export function ClaimScreen() {
               </div>
             </div>
           )}
-          {evmWallets?.length === 0 && <p className="mt-3 text-sm text-muted">No EVM wallet extension was found in this browser. Install MetaMask to claim with an EVM address.</p>}
+          {evmWallets?.length === 0 && <p className="mt-3 text-sm font-mono text-[#322E25]/70">No EVM wallet extension was found in this browser. Install MetaMask to claim with an EVM address.</p>}
           {notListed && signer && (
-            <p className="mt-4 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
-              This wallet isn&apos;t in this payroll run. <span className="num">{signer.address}</span>
+            <p className="mt-4 border border-[#8a5a00]/40 bg-[#fbf0d6] px-3 py-2 text-sm font-mono text-[#8a5a00]">
+              This wallet isn&apos;t in this payroll run. <span className="font-mono break-all">{signer.address}</span>
               {signer.chain === "evm" && " To use another address, switch accounts in your wallet extension and connect again."}
             </p>
           )}
@@ -287,103 +299,106 @@ export function ClaimScreen() {
       )}
 
       {row && (
-        <div className="card p-6">
-          <p className="label">Your payout</p>
-          <p className="num mt-1 text-4xl">{row.amountDisplay} <span className="text-xl text-muted">USDC</span></p>
+        <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60">Your payout</p>
+          <p className="mt-1">
+            <span className="text-4xl font-mono font-bold tabular-nums">{row.amountDisplay}</span>{" "}
+            <span className="text-xl font-mono text-[#322E25]/60">USDC</span>
+          </p>
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div>
-              <dt className="label">Connected as</dt>
-              <dd className="num mt-0.5 break-all text-xs">{row.address}</dd>
+              <dt className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60">Connected as</dt>
+              <dd className="text-xs font-mono break-all mt-0.5">{row.address}</dd>
               <dd className="mt-1.5">
-                <button className="text-xs underline disabled:opacity-50" disabled={busy !== null} onClick={() => (signer?.chain === "near" ? void switchNearAccount() : resetView())}>
+                <button className="text-xs font-mono underline disabled:opacity-50" disabled={busy !== null} onClick={() => (signer?.chain === "near" ? void switchNearAccount() : resetView())}>
                   {signer?.chain === "near" ? "Switch account" : "Use a different wallet"}
                 </button>
               </dd>
             </div>
             {(row.name || row.memo) && (
               <div>
-                <dt className="label">For</dt>
-                <dd className="mt-0.5">{[row.name, row.role, row.memo].filter(Boolean).join(" · ")}</dd>
+                <dt className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60">For</dt>
+                <dd className="text-xs font-mono mt-0.5">{[row.name, row.role, row.memo].filter(Boolean).join(" · ")}</dd>
               </div>
             )}
           </dl>
-          <p className="mt-4 text-xs leading-5 text-muted">
+          <p className="mt-4 text-xs font-mono leading-5 text-[#322E25]/70">
             Only you see this row. Claiming is a standard on-chain transfer: it makes this address and amount public.
           </p>
         </div>
       )}
 
       {row?.claimed && (
-        <div className="card border-accent p-6">
-          <p className="flex items-center gap-2 font-medium text-accent">
-            ✓ Claimed {row.claim?.simulated && <SimulatedBadge />}
+        <div className="border-2 border-[#0667DC] bg-[#E1D7C0]/60 p-6">
+          <p className="flex items-center gap-2 font-bold font-mono text-[#0667DC]">
+            <span className="text-[#3CE68A]">✓</span> Claimed {row.claim?.simulated && <SimulatedBadge />}
           </p>
-          {!row.claim && <p className="mt-1 text-sm">The contract shows this payout as claimed.</p>}
+          {!row.claim && <p className="mt-1 text-sm font-mono">The contract shows this payout as claimed.</p>}
           {row.claim && !row.claim.simulated && (
-            <p className="mt-1 text-sm leading-6">
-              {row.amountDisplay} USDC was sent to <span className="num">{row.claim.payoutTarget}</span>.
+            <p className="mt-1 text-sm font-mono leading-6">
+              {row.amountDisplay} USDC was sent to <span className="break-all">{row.claim.payoutTarget}</span>.
             </p>
           )}
           {row.claim?.simulated && (
-            <div className="mt-1 space-y-2 text-sm leading-6">
+            <div className="mt-1 space-y-2 text-sm font-mono leading-6">
               <p>
                 {row.claim.payoutStatus === "refunded_simulated"
                   ? "Refunded (simulated failure). The team has been notified; once they reopen your claim you can claim again here."
                   : "Delivered (simulated)."}
               </p>
-              <p className="text-muted">
+              <p className="text-[#322E25]/70">
                 This is a testnet simulation: nothing arrived on the destination chain, because cross-chain delivery (1Click) only exists on mainnet.
-                The contract really paid {row.amountDisplay} test USDC to the holding account <span className="num">{row.claim.payoutTarget}</span>.
+                The contract really paid {row.amountDisplay} test USDC to the holding account <span className="break-all">{row.claim.payoutTarget}</span>.
               </p>
             </div>
           )}
-          <p className="mt-2 flex flex-wrap gap-x-4 text-sm">
-            {row.claim?.txHash && <a className="underline" href={explorerTx(info.network, row.claim.txHash)} target="_blank" rel="noreferrer">View the claim transaction</a>}
-            {row.claim?.refundTx && <a className="underline" href={explorerTx(info.network, row.claim.refundTx)} target="_blank" rel="noreferrer">View the refund transaction</a>}
+          <p className="mt-2 flex flex-wrap gap-x-4 text-sm font-mono">
+            {row.claim?.txHash && <a className="text-xs font-mono text-[#0667DC] underline hover:no-underline" href={explorerTx(info.network, row.claim.txHash)} target="_blank" rel="noreferrer">View the claim transaction</a>}
+            {row.claim?.refundTx && <a className="text-xs font-mono text-[#0667DC] underline hover:no-underline" href={explorerTx(info.network, row.claim.refundTx)} target="_blank" rel="noreferrer">View the refund transaction</a>}
           </p>
         </div>
       )}
 
       {row && !row.claimed && row.claim?.payoutStatus === "reopened" && (
-        <p className="rounded-md bg-accent-soft px-3 py-2 text-sm text-accent">
+        <p className="border border-[#0667DC]/30 bg-[#e8f1fc] px-3 py-2 text-sm font-mono text-[#0667DC]">
           Your earlier (simulated) payout was refunded and your claim was reopened. You can claim again below.
         </p>
       )}
 
       {row && !row.claimed && row.claim?.status === "failed" && row.claim.payoutStatus !== "reopened" && (
-        <p className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">
+        <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">
           The last claim attempt did not go through{row.claim.error ? `: ${row.claim.error}` : ""}. Nothing was paid; you can try again.
         </p>
       )}
 
       {row && !row.claimed && open && !prepared && (
-        <div className="card p-6">
-          <p className="font-medium">Choose how to receive it</p>
-          <p className="mt-1 text-sm text-muted">The amount owed is fixed in USDC. You choose only where it goes.</p>
-          <div className="mt-4 divide-y divide-line rounded-md border border-line">
-            {options === null && <p className="p-4 text-sm text-muted">Loading options…</p>}
+        <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6">
+          <p className="font-bold font-mono uppercase tracking-tight">Choose how to receive it</p>
+          <p className="mt-1 text-sm font-mono text-[#322E25]/70">The amount owed is fixed in USDC. You choose only where it goes.</p>
+          <div className="mt-4 border border-[#322E25]/15">
+            {options === null && <p className="p-4 text-sm font-mono text-[#322E25]/70">Loading options…</p>}
             {options?.map((o) => (
-              <label key={o.id} className={`flex gap-3 p-4 ${o.available ? "cursor-pointer" : "opacity-70"} ${optionId === o.id ? "bg-accent-soft/60" : ""}`}>
-                <input type="radio" name="payout-option" className="mt-1 accent-[var(--accent)]" disabled={!o.available} checked={optionId === o.id} onChange={() => setOptionId(o.id)} />
+              <label key={o.id} className={`flex gap-3 border-b border-[#322E25]/10 last:border-b-0 p-4 ${o.available ? "cursor-pointer" : "opacity-70"} ${optionId === o.id ? "bg-[#E9E1CD]" : ""}`}>
+                <input type="radio" name="payout-option" className="mt-1 accent-[#0667DC]" disabled={!o.available} checked={optionId === o.id} onChange={() => setOptionId(o.id)} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                    <p className="flex items-center gap-2 font-medium">
+                    <p className="flex items-center gap-2 font-medium font-mono">
                       {o.label}
                       {o.simulated && <SimulatedBadge />}
                     </p>
-                    <p className="num text-sm">
+                    <p className="font-mono text-sm tabular-nums">
                       {o.estimated ? "~" : ""}
                       {formatUnits(o.estimatedAmountOut, o.decimals)} {o.symbol}
-                      {o.estimated && <span className="ml-1 text-xs text-muted">estimated</span>}
+                      {o.estimated && <span className="ml-1 text-xs text-[#322E25]/60">estimated</span>}
                     </p>
                   </div>
-                  <p className="mt-1 text-xs text-muted">
+                  <p className="mt-1 text-xs font-mono text-[#322E25]/70">
                     {o.feeBps !== undefined && `Fee ~${(o.feeBps / 100).toFixed(2)}% · `}
                     {o.etaSeconds !== undefined && `about ${o.etaSeconds < 60 ? `${o.etaSeconds} s` : `${Math.round(o.etaSeconds / 60)} min`}`}
                     {o.estimatedMinAmountOut && ` · at least ${formatUnits(o.estimatedMinAmountOut, o.decimals)} ${o.symbol} after slippage`}
                   </p>
-                  {o.note && <p className="mt-1 text-xs text-warn">{o.note}</p>}
-                  {!o.available && o.unavailableReason && <p className="mt-1 text-xs text-warn">{o.unavailableReason}</p>}
+                  {o.note && <p className="mt-1 text-xs font-mono text-[#8a5a00]">{o.note}</p>}
+                  {!o.available && o.unavailableReason && <p className="mt-1 text-xs font-mono text-[#8a5a00]">{o.unavailableReason}</p>}
                 </div>
               </label>
             ))}
@@ -391,10 +406,10 @@ export function ClaimScreen() {
 
           {optionId !== "near-usdc" && (
             <div className="mt-5">
-              <p className="text-sm leading-6">
-                Destination: your own address <span className="num break-all">{row.address}</span>.
+              <p className="text-sm font-mono leading-6">
+                Destination: your own address <span className="break-all">{row.address}</span>.
               </p>
-              <p className="mt-1 text-xs leading-5 text-warn">
+              <p className="mt-1 text-xs font-mono leading-5 text-[#8a5a00]">
                 Simulated on testnet: you will sign a real claim and the contract will really pay out, but to a holding account. Nothing will arrive at this address.
               </p>
               <button className="btn mt-4" disabled={busy !== null} onClick={() => void prepare()}>
@@ -403,12 +418,14 @@ export function ClaimScreen() {
             </div>
           )}
           <div className={`mt-5 ${optionId === "near-usdc" ? "" : "hidden"}`}>
-            <label className="label" htmlFor="receiver">NEAR account to receive the USDC</label>
+            <label className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60" htmlFor="receiver">NEAR account to receive the USDC</label>
             <input id="receiver" className="field num mt-1" value={receiver} onChange={(e) => setReceiver(e.target.value)} placeholder={info.network === "mainnet" ? "you.near" : "you.testnet"} autoComplete="off" spellCheck={false} />
-            <p className="mt-1.5 text-xs leading-5 text-muted">
+            <p className="mt-1.5 text-xs font-mono leading-5 text-[#322E25]/70">
               {row.chain === "evm"
                 ? "It goes into the message you sign, so nobody (including our relayer) can send your payout anywhere else. The relayer pays the gas."
-                : "You send the claim from your own NEAR wallet and pay a very small gas fee."}
+                : receiver.trim().toLowerCase() === row.address
+                  ? "Gas-free: our relayer submits the claim and pays the network fee. The contract can only pay this payout to your own account."
+                  : "Sending to another account: you send the claim from your own NEAR wallet and pay a very small network fee. Your own account is gas-free."}
             </p>
             <button className="btn mt-4" disabled={busy !== null || receiver.trim() === ""} onClick={() => void prepare()}>
               {busy === "prepare" ? "Checking…" : "Continue"}
@@ -418,47 +435,51 @@ export function ClaimScreen() {
       )}
 
       {row && !row.claimed && prepared && (
-        <div className="card border-ink p-6">
-          <p className="font-medium">Review and sign</p>
+        <div className="border-2 border-[#322E25] bg-[#E1D7C0]/60 p-6">
+          <p className="font-bold font-mono uppercase tracking-tight">Review and sign</p>
           {prepared.summary.simulated ? (
-            <div className="mt-1 space-y-2 text-sm leading-6">
+            <div className="mt-1 space-y-2 text-sm font-mono leading-6">
               <p className="flex flex-wrap items-center gap-2">
-                <span className="num">{prepared.summary.amountDisplay} USDC</span> as {prepared.summary.label} to <span className="num break-all">{prepared.summary.receiver}</span> <SimulatedBadge />
+                <span className="font-mono tabular-nums">{prepared.summary.amountDisplay} USDC</span> as {prepared.summary.label} to <span className="break-all">{prepared.summary.receiver}</span> <SimulatedBadge />
               </p>
               {prepared.summary.estimatedAmountOut && prepared.summary.decimals !== undefined && (
-                <p className="text-muted">
+                <p className="text-[#322E25]/70">
                   Estimate from mainnet prices: ~{formatUnits(prepared.summary.estimatedAmountOut, prepared.summary.decimals)} {prepared.summary.symbol}
                   {prepared.summary.estimatedMinAmountOut && `, at least ${formatUnits(prepared.summary.estimatedMinAmountOut, prepared.summary.decimals)} after slippage`}.
                 </p>
               )}
-              <p className="rounded-md bg-warn-soft px-3 py-2 text-warn">
-                {prepared.summary.note} Holding account: <span className="num">{prepared.summary.holdingAccount}</span>.
+              <p className="border border-[#8a5a00]/40 bg-[#fbf0d6] px-3 py-2 text-[#8a5a00]">
+                {prepared.summary.note} Holding account: <span className="break-all">{prepared.summary.holdingAccount}</span>.
               </p>
             </div>
           ) : (
-            <p className="mt-1 text-sm leading-6">
-              <span className="num">{prepared.summary.amountDisplay} USDC</span> on NEAR to <span className="num">{prepared.summary.receiver}</span>.
+            <p className="mt-1 text-sm font-mono leading-6">
+              <span className="tabular-nums">{prepared.summary.amountDisplay} USDC</span> on NEAR to <span className="break-all">{prepared.summary.receiver}</span>.
             </p>
           )}
           {prepared.kind === "evm" ? (
             <>
-              <p className="label mt-4">Message your wallet will show</p>
-              <pre className="num mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-line bg-paper p-3 text-xs">{prepared.message}</pre>
-              <p className="mt-2 text-xs text-muted">Sign within 10 minutes (expires {new Date(prepared.expiresAtMs).toLocaleTimeString()}). Signing costs nothing.</p>
+              <p className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60 mt-4">Message your wallet will show</p>
+              <pre className="font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all border border-[#322E25]/20 bg-[#E9E1CD] p-3 mt-1">{prepared.message}</pre>
+              <p className="mt-2 text-xs font-mono text-[#322E25]/70">Sign within 10 minutes (expires {new Date(prepared.expiresAtMs).toLocaleTimeString()}). Signing costs nothing.</p>
             </>
+          ) : prepared.relayed ? (
+            <p className="mt-2 text-xs font-mono text-[#322E25]/70">Gas-free: nothing to sign and no NEAR needed. Our relayer submits the claim and pays the network fee; the contract can only pay your own account.</p>
           ) : (
-            <p className="mt-2 text-xs text-muted">Your NEAR wallet will ask you to approve a call to <span className="num">{prepared.call.contractId}</span>.</p>
+            <p className="mt-2 text-xs font-mono text-[#322E25]/70">You chose another account, so your NEAR wallet will ask you to approve a call to <span className="break-all">{prepared.call.contractId}</span> and you pay a small network fee. Claiming to your own account is gas-free.</p>
           )}
           <div className="mt-4 flex gap-3">
             <button className="btn" disabled={busy !== null} onClick={() => void signAndSubmit()}>
-              {busy === "submit" ? "Signing and sending…" : prepared.kind === "evm" ? "Sign and claim" : "Claim from my wallet"}
+              {prepared.kind === "near" && prepared.relayed
+                ? busy === "submit" ? "Claiming…" : "Claim (gas-free)"
+                : busy === "submit" ? "Signing and sending…" : prepared.kind === "evm" ? "Sign and claim" : "Claim from my wallet"}
             </button>
             <button className="btn-quiet" disabled={busy !== null} onClick={() => setPrepared(null)}>Back</button>
           </div>
         </div>
       )}
 
-      {row && !row.claimed && !open && <p className="rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">This run is not accepting claims right now.</p>}
+      {row && !row.claimed && !open && <p className="border border-[#8a5a00]/40 bg-[#fbf0d6] px-3 py-2 text-sm font-mono text-[#8a5a00]">This run is not accepting claims right now.</p>}
     </div>
   );
 }

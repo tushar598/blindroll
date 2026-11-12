@@ -650,3 +650,74 @@ async fn failed_payout_reopen_pause_and_reclaim() -> Res<()> {
     );
     Ok(())
 }
+
+/// Gas-free NEAR claim: the relayer submits `claim_near_relayed`; the recipient sends nothing and
+/// pays nothing, and the USDC can only reach the leaf's own account.
+#[tokio::test]
+async fn relayed_near_claim_is_gas_free_for_the_recipient() -> Res<()> {
+    let env = Env::active_run(3_600_000).await?;
+    let call = |caller: &Account, leaf_index: usize| {
+        caller
+            .call(env.blindroll.id(), "claim_near_relayed")
+            .args_json(json!({
+                "run_key": env.run_key,
+                "leaf": env.tree["leaves"][leaf_index],
+                "proof": env.tree["proofs"][leaf_index],
+            }))
+            .gas(CLAIM_GAS)
+            .transact()
+    };
+
+    // Only the configured relayer may trigger it: not a stranger, not even the recipient.
+    assert!(failure_text(call(&env.stranger, 3).await?).contains("Only the relayer can call this"));
+    assert!(failure_text(call(&env.hiro, 3).await?).contains("Only the relayer can call this"));
+    // An EVM leaf (leaf 0) needs the recipient's signature through claim_evm.
+    assert!(
+        failure_text(call(&env.relayer, 0).await?)
+            .contains("claim_near_relayed requires a near leaf")
+    );
+    // A leaf rewritten to pay the relayer no longer matches the Merkle root.
+    let mut forged = env.tree["leaves"][3].clone();
+    forged["address"] = json!(env.relayer.id());
+    let res = env
+        .relayer
+        .call(env.blindroll.id(), "claim_near_relayed")
+        .args_json(
+            json!({ "run_key": env.run_key, "leaf": forged, "proof": env.tree["proofs"][3] }),
+        )
+        .gas(CLAIM_GAS)
+        .transact()
+        .await?;
+    assert!(failure_text(res).contains("Invalid Merkle proof"));
+    assert!(!env.is_claimed(3).await?);
+
+    // Leaf 3 = hiro.test.near. Hiro has sent no successful transaction, so their NEAR balance
+    // must not move (the failed attempt above cost a little gas, so measure from here).
+    let hiro_near_before = env.hiro.view_account().await?.balance;
+    let res = call(&env.relayer, 3).await?;
+    println!("claim_near_relayed gas burnt: {}", res.total_gas_burnt);
+    assert!(has_event(&res, "claimed"), "logs: {:?}", res.logs());
+    res.into_result()?;
+
+    let amount: u128 = env.tree["leaves"][3]["amount"].as_str().unwrap().parse()?;
+    assert_eq!(env.usdc_of(env.hiro.id().as_str()).await?, amount);
+    assert_eq!(env.usdc_of(env.relayer.id().as_str()).await?, 0);
+    assert!(env.is_claimed(3).await?);
+    assert_eq!(env.run().await?["claimed_amount"], amount.to_string());
+    assert_eq!(
+        env.hiro.view_account().await?.balance,
+        hiro_near_before,
+        "the recipient paid no gas: the relayer signed and paid for the transaction"
+    );
+
+    // Neither path can claim the leaf a second time.
+    assert!(
+        failure_text(call(&env.relayer, 3).await?).contains("This leaf has already been claimed")
+    );
+    let to_hiro = json!({ "kind": "near_ft", "receiver": env.hiro.id() });
+    assert!(
+        failure_text(env.claim_near(&env.hiro, 3, to_hiro).await?)
+            .contains("This leaf has already been claimed")
+    );
+    Ok(())
+}

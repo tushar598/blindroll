@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { approverOrgIds } from "@/lib/server/auth";
-import { DEMO_ORG, serverConfig } from "@/lib/server/config";
+import { DEMO_ORG, enabledNearWallets, serverConfig } from "@/lib/server/config";
 import { db } from "@/lib/server/db";
 import { handle } from "@/lib/server/http";
 import { SESSION_COOKIE, readSessionToken } from "@/lib/server/session";
@@ -17,5 +17,6 @@ export const GET = handle(async (req) => {
     tokenId: c.tokenId,
     aiLive: c.aiLive,
     org: { id: DEMO_ORG.id, name: DEMO_ORG.name },
+    wallets: enabledNearWallets(),
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
-import { connectWallet, disconnectWallet, signInMessage } from "@/lib/client/wallet";
+import { configureWallets, connectWallet, disconnectWallet, signInMessage } from "@/lib/client/wallet";
 
 export interface Me {
   accountId: string | null;
@@ -10,6 +10,14 @@ export interface Me {
   tokenId: string;
   aiLive: boolean;
   org: { id: string; name: string };
+  /** NEAR wallet IDs this deployment offers (Meteor always). */
+  wallets?: string[];
+}
+
+/** Applies the deployment's wallet list before anything can use a wallet. */
+function withWallets(me: Me): Me {
+  configureWallets(me.wallets);
+  return me;
 }
 
 interface SessionValue {
@@ -37,7 +45,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      setMe(await api<Me>("/api/auth/me"));
+      setMe(withWallets(await api<Me>("/api/auth/me")));
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -48,7 +56,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let live = true;
     api<Me>("/api/auth/me")
-      .then((m) => live && setMe(m))
+      .then((m) => live && setMe(withWallets(m)))
       .catch((err) => live && setError(errorMessage(err)))
       .finally(() => live && setLoading(false));
     return () => {

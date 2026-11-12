@@ -72,6 +72,21 @@ export function demoOrgApprovers(env: Record<string, string | undefined> = proce
   return list;
 }
 
+/** NEAR wallets the client knows how to load (apps/web/lib/client/wallet.ts). Meteor is always offered. */
+export const KNOWN_NEAR_WALLETS = ["meteor-wallet", "intear-wallet", "sender"] as const;
+
+/**
+ * Wallets offered in the UI. Optional env NEAR_WALLETS (comma-separated IDs from KNOWN_NEAR_WALLETS)
+ * switches on the ones that were tested for this deployment; the default is Meteor only.
+ */
+export function enabledNearWallets(env: Record<string, string | undefined> = process.env): string[] {
+  const list = (env.NEAR_WALLETS ?? "").split(",").map((w) => w.trim()).filter(Boolean);
+  for (const w of list) {
+    if (!(KNOWN_NEAR_WALLETS as readonly string[]).includes(w)) throw new Error(`NEAR_WALLETS holds an unknown wallet ID (allowed: ${KNOWN_NEAR_WALLETS.join(", ")})`);
+  }
+  return [...new Set(["meteor-wallet", ...list])];
+}
+
 export const MAX_RUN_ROWS = 500;
 export const DEFAULT_CLAIM_DAYS = 14;
 

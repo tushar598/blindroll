@@ -1,12 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 import "./globals.css";
 import { SessionProvider } from "./components/session";
 import { SiteHeader } from "./components/site-header";
-
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Blindroll — claim-based payroll on NEAR",
@@ -15,11 +11,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full">
+    <html
+      lang="en"
+      className="h-full antialiased"
+    >
+      <body className="min-h-full font-mono selection:bg-[#0667DC] selection:text-white">
         <SessionProvider>
           {/* The header reads the current path, which is only known at request time on dynamic routes. */}
-          <Suspense fallback={<div className="h-[57px] border-b border-line bg-card" />}>
+          <Suspense fallback={<div className="h-[57px] border-b border-[#322E25]/15 bg-[#E1D7C0]" />}>
             <SiteHeader />
           </Suspense>
           <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-8">{children}</main>

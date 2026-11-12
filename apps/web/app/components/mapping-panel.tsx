@@ -33,9 +33,9 @@ export function MappingPanel({ run, onChanged }: { run: RunView; onChanged: () =
   }
   const m = run.mapping;
   return (
-    <div className="card p-5">
+    <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="text-sm leading-6">
+        <div className="text-sm font-mono leading-6">
           {run.mappingSource === "ai" && run.ai ? (
             <>
               <p>
@@ -43,10 +43,10 @@ export function MappingPanel({ run, onChanged }: { run: RunView; onChanged: () =
                 It only proposed this mapping; code read the amounts and ran the checks.
               </p>
               <ul className="mt-2 space-y-1 text-sm">
-                <li className={run.ai.signatureVerified ? "text-accent" : "text-error"}>
+                <li className={run.ai.signatureVerified ? "text-[#0667DC]" : "text-[#a3271f]"}>
                   {run.ai.signatureVerified ? "✓ Response signature verified (signed inside the model's TEE)" : "✗ Response signature not verified"}
                 </li>
-                <li className="text-muted">– Attestation: stored, signer and nonce match; the Intel quote itself is not verified in this version</li>
+                <li className="text-[#322E25]/60">– Attestation: stored, signer and nonce match; the Intel quote itself is not verified in this version</li>
               </ul>
             </>
           ) : (
@@ -57,17 +57,17 @@ export function MappingPanel({ run, onChanged }: { run: RunView; onChanged: () =
           <button className="btn-quiet" onClick={() => setEditing(true)}>Change mapping</button>
         )}
       </div>
-      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-line pt-4 text-sm sm:grid-cols-4">
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-[#322E25]/15 pt-4 text-sm sm:grid-cols-4">
         {FIELDS.map(([f, label]) => (
           <div key={f}>
-            <dt className="label">{label}</dt>
-            <dd className="mt-0.5">{m.mapping[f] ?? <span className="text-muted">{f === "chain" ? "from address format" : f === "currency" ? "none (USDC)" : "—"}</span>}</dd>
+            <dt className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60">{label}</dt>
+            <dd className="mt-0.5">{m.mapping[f] ?? <span className="text-[#322E25]/40">{f === "chain" ? "from address format" : f === "currency" ? "none (USDC)" : "—"}</span>}</dd>
           </div>
         ))}
       </dl>
       {m.mapping.currency === null && (
-        <p className="mt-4 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
-          This file has no currency column, so every amount is read as USDC. The report will note “currency defaulted to USDC”.
+        <p className="mt-4 border border-[#8a5a00]/30 bg-[#fbf0d6] px-3 py-2 text-sm text-[#8a5a00] font-mono">
+          This file has no currency column, so every amount is read as USDC. The report will note &quot;currency defaulted to USDC&quot;.
         </p>
       )}
     </div>
@@ -104,8 +104,8 @@ function ManualMappingForm({ run, onSaved, onCancel }: { run: RunView; onSaved: 
   }
 
   return (
-    <div className="card p-5">
-      <p className="text-sm leading-6">
+    <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-5">
+      <p className="text-sm font-mono text-[#322E25]/70 leading-6">
         {initial
           ? "Changing the mapping replaces the AI mapping and clears edits and overrides made so far."
           : run.aiLive
@@ -125,7 +125,7 @@ function ManualMappingForm({ run, onSaved, onCancel }: { run: RunView; onSaved: 
           </div>
         ))}
       </div>
-      <div className="mt-4 grid gap-4 border-t border-line pt-4 sm:grid-cols-3">
+      <div className="mt-4 grid gap-4 border-t border-[#322E25]/15 pt-4 sm:grid-cols-3">
         <div>
           <label className="label" htmlFor="map-thousands">Thousands separator</label>
           <select id="map-thousands" className="field mt-1" value={thousands} onChange={(e) => setThousands(e.target.value)}>
@@ -147,7 +147,7 @@ function ManualMappingForm({ run, onSaved, onCancel }: { run: RunView; onSaved: 
           <input id="map-symbols" className="field mt-1" value={symbols} onChange={(e) => setSymbols(e.target.value)} placeholder="$ USD" />
         </div>
       </div>
-      {error && <p className="mt-4 rounded-md bg-error-soft px-3 py-2 text-sm text-error">{error}</p>}
+      {error && <p className="mt-4 border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{error}</p>}
       <div className="mt-4 flex gap-3">
         <button className="btn" onClick={() => void save()} disabled={busy || cols.address === "" || cols.amount === ""}>
           {busy ? "Saving…" : "Use this mapping"}

@@ -1,13 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  --paper: #f5f3ec;
-  --card: #fffdf8;
-  --ink: #1a1c19;
-  --muted: #666a60;
-  --line: #dcd8cb;
-  --accent: #0f5c4d;
-  --accent-soft: #e3efe9;
+  /* Brutalist-minimal NEAR palette */
+  --paper: #E9E1CD;
+  --ink: #322E25;
+  --card: rgba(225, 215, 192, 0.65);
+  --card-dark: #221F1A;
+  --dark-bg: #191713;
+  --accent: #0667DC;
+  --accent-hover: #0556B8;
+  --accent-green: #3CE68A;
+  --border: rgba(50, 46, 37, 0.15);
+  --border-field: rgba(50, 46, 37, 0.20);
+
+  /* Typography fallbacks */
+  --font-geist-sans: "Archivo", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-geist-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Harmonised semantic tokens (kept for existing consumers) */
+  --muted: rgba(50, 46, 37, 0.65);
+  --line: rgba(50, 46, 37, 0.15);
+  --accent-soft: #e8f1fc;
   --error: #a3271f;
   --error-soft: #f8e6e2;
   --warn: #8a5a00;
@@ -21,40 +34,75 @@
   --color-muted: var(--muted);
   --color-line: var(--line);
   --color-accent: var(--accent);
+  --color-accent-green: var(--accent-green);
   --color-accent-soft: var(--accent-soft);
   --color-error: var(--error);
   --color-error-soft: var(--error-soft);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-dark-bg: var(--dark-bg);
+  --color-card-dark: var(--card-dark);
+  /* Typography */
+  --font-sans: var(--font-geist-mono), ui-monospace, monospace;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-geist-sans), system-ui, sans-serif;
 }
 
+/* ── Marquee keyframes ─────────────────────────────────────── */
+@keyframes marquee-left {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes marquee-right {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
+
+.animate-marquee-left {
+  animation: marquee-left 34s linear infinite;
+}
+
+.animate-marquee-right {
+  animation: marquee-right 34s linear infinite;
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
 body {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  background-color: #E9E1CD;
+  color: #322E25;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
 }
 
+/* Legacy .num helper */
 .num {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
 }
 
+/* Monospace utility */
+.mono {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Component layer ───────────────────────────────────────── */
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md border border-ink bg-ink px-3.5 py-2 text-sm font-medium text-paper transition-colors hover:bg-accent hover:border-accent disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex items-center justify-center gap-2 rounded-none bg-[#0667DC] px-4 py-2.5 text-xs font-mono font-medium text-white shadow-none transition-all hover:bg-[#0556B8] hover:shadow-[4px_4px_0px_0px_#000000] hover:-translate-x-[2px] hover:-translate-y-[2px] active:translate-x-0 active:translate-y-0 active:shadow-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-none;
+    letter-spacing: 0.02em;
   }
   .btn-quiet {
-    @apply inline-flex items-center justify-center gap-2 rounded-md border border-line bg-card px-3 py-1.5 text-sm text-ink transition-colors hover:border-ink disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex items-center justify-center gap-2 rounded-none bg-[#0667DC] px-4 py-2.5 text-xs font-mono font-medium text-white shadow-none transition-all hover:bg-[#0556B8] hover:shadow-[4px_4px_0px_0px_#000000] hover:-translate-x-[2px] hover:-translate-y-[2px] active:translate-x-0 active:translate-y-0 active:shadow-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-none;
+    letter-spacing: 0.02em;
   }
   .field {
-    @apply w-full rounded-md border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent;
+    @apply w-full rounded-none border border-[#322E25]/20 bg-[#E9E1CD] px-3.5 py-2.5 text-xs font-mono text-[#322E25] outline-none transition-colors focus:border-[#0667DC] placeholder:text-[#322E25]/40;
   }
   .card {
-    @apply rounded-lg border border-line bg-card;
+    @apply rounded-none border border-[#322E25]/15 bg-[#E1D7C0]/60;
   }
   .label {
-    @apply text-xs font-medium uppercase tracking-wider text-muted;
+    @apply text-[10px] font-mono font-medium uppercase tracking-widest text-[#322E25]/60;
   }
 }

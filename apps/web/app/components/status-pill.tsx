@@ -10,13 +10,13 @@ const LABELS: Record<string, { text: string; tone: "neutral" | "warn" | "good" |
 };
 
 const TONES = {
-  neutral: "border-line text-ink",
-  warn: "border-warn/40 bg-warn-soft text-warn",
-  good: "border-accent/40 bg-accent-soft text-accent",
-  bad: "border-error/40 bg-error-soft text-error",
+  neutral: "border-[#322E25]/20 text-[#322E25]/70 bg-transparent",
+  warn: "border-[#8a5a00]/30 bg-[#fbf0d6] text-[#8a5a00]",
+  good: "border-[#0667DC]/30 bg-[#e8f1fc] text-[#0667DC]",
+  bad: "border-[#a3271f]/30 bg-[#f8e6e2] text-[#a3271f]",
 };
 
 export function StatusPill({ status }: { status: string }) {
   const l = LABELS[status] ?? { text: status, tone: "neutral" as const };
-  return <span className={`whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium ${TONES[l.tone]}`}>{l.text}</span>;
+  return <span className={`whitespace-nowrap border px-2.5 py-0.5 text-[10px] font-mono uppercase tracking-widest ${TONES[l.tone]}`}>{l.text}</span>;
 }

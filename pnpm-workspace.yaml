@@ -7,3 +7,6 @@ allowBuilds:
   esbuild: true
   better-sqlite3: true
   secp256k1: false
+  # optional native speed-ups for ws; not needed
+  bufferutil: false
+  utf-8-validate: false

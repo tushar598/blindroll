@@ -4,8 +4,8 @@
 |---|---|---|---|
 | T1 | Compromised backend changes rows before finalization | Pays wrong address/amount | Approvers review the final table; the report and root are shown before `create_run`; M-of-N approvals |
 | T2 | Compromised backend shows a fake 1Click deposit address | Recipient's payout stolen | The target is in the signed claim message and shown in the wallet prompt; the UI displays the 1Click explorer link. Residual risk: documented |
-| T3 | Relayer key stolen | Gas drained | Low balance, alerts. It can't move run funds (claims need signatures or the recipient as predecessor; reopen needs an approver) |
-| T4 | Relayer or front-runner redirects a claim | Funds stolen | Payout target is signed (EVM) or the predecessor is the recipient (NEAR) |
+| T3 | Relayer key stolen | Gas drained | Low balance, alerts. It can't redirect run funds: EVM claims need the recipient's signature, `claim_near` needs the recipient as predecessor, reopen needs an approver. With `claim_near_relayed` it can trigger a NEAR recipient's payout early, but only as USDC on NEAR to that recipient's own account. Rotate with `set_relayer` |
+| T4 | Relayer or front-runner redirects a claim | Funds stolen | Payout target is signed (EVM), the predecessor is the recipient (`claim_near`), or the method has no payout argument and pays the leaf's own account (`claim_near_relayed`, relayer only) |
 | T5 | Replay of a claim | Double payment | `claimed` set per `(run_key, leaf)`; `expires_at_ms` |
 | T6 | Cross-run drain | One run pays another's claims | Per-run `funded_amount` / `claimed_amount` accounting |
 | T7 | Prompt injection in CSV cells | AI produces a bad mapping | The AI only returns a column mapping validated by schema; code applies it; the AI never sees or decides amounts or payments; approvers review |

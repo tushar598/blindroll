@@ -1072,6 +1072,162 @@ fn claim_fails_when_contract_balance_is_below_reserve() {
     .detach();
 }
 
+// ───────────── claim_near_relayed (gas-free NEAR claim) ─────────────
+
+fn relayed(c: &mut Blindroll, caller: &str, t: &Value, leaf: Leaf, proof_index: usize) {
+    ctx(caller);
+    c.claim_near_relayed(s(&t["run_key"]).to_string(), leaf, proof_of(t, proof_index))
+        .detach();
+}
+
+#[test]
+fn relayer_claims_for_near_recipient_and_pays_only_the_leaf_account() {
+    let (mut c, t) = active("claim-demo");
+    let leaf_hash = s(&t["leaf_hashes"][1]).to_string();
+    let key = s(&t["run_key"]).to_string();
+
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+    // The relayer signed the transaction, but the USDC goes to the leaf's account.
+    assert_paid("ben.test.near", 800_000_000);
+    assert!(c.is_claimed(key.clone(), leaf_hash.clone()));
+    let r = run_of(&c, &t);
+    assert_eq!(r.claimed_amount.0, 800_000_000);
+    assert_invariants(&r);
+
+    ctx_callback(PromiseResult::Successful(vec![]), NOW);
+    assert!(c.on_payout(key, leaf_hash, "near_ft".into()));
+    assert_eq!(events()[0]["event"], "claimed");
+    assert_eq!(events()[0]["data"][0]["payout_kind"], "near_ft");
+}
+
+#[test]
+#[should_panic(expected = "Only the relayer can call this")]
+fn relayed_claim_by_a_stranger_fails() {
+    let (mut c, t) = active("claim-demo");
+    relayed(&mut c, STRANGER, &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+#[should_panic(expected = "Only the relayer can call this")]
+fn relayed_claim_by_the_recipient_fails() {
+    let (mut c, t) = active("claim-demo");
+    relayed(&mut c, "ben.test.near", &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+#[should_panic(expected = "Only the relayer can call this")]
+fn relayed_claim_by_the_owner_fails() {
+    let (mut c, t) = active("claim-demo");
+    relayed(&mut c, OWNER, &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+#[should_panic(expected = "Only the relayer can call this")]
+fn relayed_claim_by_a_replaced_relayer_fails() {
+    let (mut c, t) = active("claim-demo");
+    ctx(OWNER);
+    c.set_relayer(acc("relayer2.test.near"));
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+#[should_panic(expected = "claim_near_relayed requires a near leaf")]
+fn relayed_claim_rejects_evm_leaf() {
+    let (mut c, t) = active("claim-demo");
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 0), 0);
+}
+
+#[test]
+#[should_panic(expected = "Invalid Merkle proof")]
+fn relayed_claim_cannot_redirect_by_changing_the_leaf_address() {
+    let (mut c, t) = active("claim-demo");
+    let mut leaf = leaf_of(&t, 1);
+    leaf.address = RELAYER.into();
+    relayed(&mut c, RELAYER, &t, leaf, 1);
+}
+
+#[test]
+#[should_panic(expected = "Invalid Merkle proof")]
+fn relayed_claim_with_inflated_amount_fails() {
+    let (mut c, t) = active("claim-demo");
+    let mut leaf = leaf_of(&t, 1);
+    leaf.amount = "800000001".into();
+    relayed(&mut c, RELAYER, &t, leaf, 1);
+}
+
+#[test]
+#[should_panic(expected = "This leaf has already been claimed")]
+fn relayed_claim_after_a_direct_claim_fails() {
+    let (mut c, t) = active("claim-demo");
+    claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+#[should_panic(expected = "This leaf has already been claimed")]
+fn direct_claim_after_a_relayed_claim_fails() {
+    let (mut c, t) = active("claim-demo");
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+    claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
+}
+
+#[test]
+#[should_panic(expected = "Contract is paused")]
+fn relayed_claim_while_paused_fails() {
+    let (mut c, t) = active("claim-demo");
+    ctx(OWNER);
+    c.set_paused(true);
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+#[should_panic(expected = "Claim deadline has passed")]
+fn relayed_claim_after_deadline_fails() {
+    let (mut c, t) = active("claim-demo");
+    ctx_at(RELAYER, DEADLINE + 1);
+    c.claim_near_relayed(
+        s(&t["run_key"]).to_string(),
+        leaf_of(&t, 1),
+        proof_of(&t, 1),
+    )
+    .detach();
+}
+
+#[test]
+#[should_panic(expected = "Run is not Active")]
+fn relayed_claim_before_funding_fails() {
+    let mut c = new_contract();
+    let t = tree("claim-demo");
+    create(&mut c, &t);
+    approve_both(&mut c, s(&t["run_key"]));
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+#[should_panic(expected = "Only oneclick payouts can be reopened")]
+fn relayed_claim_cannot_be_reopened() {
+    let (mut c, t) = active("claim-demo");
+    let key = s(&t["run_key"]).to_string();
+    let leaf_hash = s(&t["leaf_hashes"][1]).to_string();
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+    ctx_callback(PromiseResult::Successful(vec![]), NOW);
+    c.on_payout(key.clone(), leaf_hash.clone(), "near_ft".into());
+    ctx(A1);
+    c.reopen_claim(key, leaf_hash);
+}
+
+#[test]
+fn failed_relayed_payout_releases_the_leaf() {
+    let (mut c, t) = active("claim-demo");
+    let key = s(&t["run_key"]).to_string();
+    let leaf_hash = s(&t["leaf_hashes"][1]).to_string();
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+    ctx_callback(PromiseResult::Failed, NOW);
+    assert!(!c.on_payout(key.clone(), leaf_hash.clone(), "near_ft".into()));
+    assert!(!c.is_claimed(key, leaf_hash));
+    assert_eq!(run_of(&c, &t).claimed_amount.0, 0);
+}
+
 // ───────────── claim_evm (invariant 5) ─────────────
 
 #[test]

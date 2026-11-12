@@ -136,28 +136,28 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
     `near contract call-function as-transaction ${run.tokenId} ft_transfer_call json-args '{"receiver_id":"${run.contractId}","amount":"${remaining}","msg":"{\\"fund_run\\":\\"${run.runKey}\\"}"}' prepaid-gas '100 Tgas' attached-deposit '1 yoctoNEAR' sign-as ${who} ${net} sign-with-keychain send`;
 
   return (
-    <div className="space-y-4">
-      {error && <p className="rounded-md bg-error-soft px-3 py-2 text-sm text-error">{error}</p>}
+    <div className="space-y-4 font-mono">
+      {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f]">{error}</p>}
       {lastTx && (
-        <p className="rounded-md bg-accent-soft px-3 py-2 text-sm text-accent">
+        <p className="border border-[#0667DC]/30 bg-[#e8f1fc] px-3 py-2 text-sm text-[#0667DC]">
           Transaction sent:{" "}
           <a className="num underline" href={explorerTx(run.network, lastTx)} target="_blank" rel="noreferrer">{lastTx}</a>
         </p>
       )}
 
       <Step title="Create the run on-chain" state={chain ? "done" : "now"}>
-        <p className="text-sm leading-6 text-muted">
+        <p className="text-sm leading-6 text-[#322E25]/70">
           Stores the Merkle root, the report hash, the approvers and the deadline in{" "}
-          <a className="num underline" href={explorerAccount(run.network, run.contractId)} target="_blank" rel="noreferrer">{run.contractId}</a>. No row data goes on-chain.
+          <a className="num underline text-[#0667DC]" href={explorerAccount(run.network, run.contractId)} target="_blank" rel="noreferrer">{run.contractId}</a>. No row data goes on-chain.
           You pay a small storage deposit; the contract refunds what it does not use.
         </p>
         {chain ? (
           <p className="mt-2 text-sm">
-            Created by <span className="num">{chain.creator}</span>
+            Created by <span className="num font-semibold text-[#322E25]">{chain.creator}</span>
             {run.createTx && (
               <>
                 {" · "}
-                <a className="underline" href={explorerTx(run.network, run.createTx)} target="_blank" rel="noreferrer">view transaction</a>
+                <a className="text-[#0667DC] underline" href={explorerTx(run.network, run.createTx)} target="_blank" rel="noreferrer">view transaction</a>
               </>
             )}
           </p>
@@ -172,9 +172,9 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
         <ul className="space-y-1.5 text-sm">
           {approverList.map((a) => (
             <li key={a} className="flex items-center gap-2">
-              <span className={approvals.includes(a) ? "text-accent" : "text-muted"}>{approvals.includes(a) ? "✓" : "○"}</span>
+              <span className={approvals.includes(a) ? "text-[#0667DC] font-bold" : "text-[#322E25]/40"}>{approvals.includes(a) ? "✓" : "○"}</span>
               <span className="num">{a}</span>
-              {a === accountId && <span className="text-xs text-muted">(you)</span>}
+              {a === accountId && <span className="text-xs text-[#322E25]/60">(you)</span>}
             </li>
           ))}
         </ul>
@@ -185,9 +185,9 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
                 {busy === "approve" ? "Confirm in your wallet…" : "Approve from my wallet"}
               </button>
             )}
-            {!approverList.includes(accountId) && <p className="mt-3 text-sm text-muted">Your account is not an approver of this run on the contract.</p>}
+            {!approverList.includes(accountId) && <p className="mt-3 text-sm text-[#322E25]/60">Your account is not an approver of this run on the contract.</p>}
             {iApproved && approvals.length < threshold && (
-              <p className="mt-3 text-sm leading-6 text-muted">
+              <p className="mt-3 text-sm leading-6 text-[#322E25]/70">
                 Waiting for another approver. They open this page, sign in with their own wallet and press Approve. This page updates by itself.
               </p>
             )}
@@ -201,19 +201,19 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
 
       <Step title="Fund with USDC" state={!chain || status === "draft" ? "later" : status === "approved" ? "now" : "done"}>
         {chain && (
-          <p className="num text-sm">
+          <p className="num text-sm font-semibold">
             {formatUsdc(chain.funded_amount)} of {formatUsdc(chain.total_amount)} USDC funded
           </p>
         )}
         {chain && status === "approved" && (
           <>
-            <p className="mt-1 text-sm leading-6 text-muted">
+            <p className="mt-1 text-sm leading-6 text-[#322E25]/70">
               Send {formatUsdc(remaining)} USDC to the contract with the run key in the message. Extra funds are returned by the contract.
               {run.network !== "mainnet" && " On testnet this is the test token, not real USDC."}
             </p>
             <p className="mt-3 text-sm">
-              Your wallet <span className="num">{accountId}</span> holds{" "}
-              <span className="num">{balance === null ? "…" : formatUsdc(balance)} USDC</span>
+              Your wallet <span className="num font-semibold">{accountId}</span> holds{" "}
+              <span className="num font-semibold">{balance === null ? "…" : formatUsdc(balance)} USDC</span>
               {run.network !== "mainnet" && " (test token)"}.
             </p>
             <div className="mt-3 flex flex-wrap gap-3">
@@ -227,7 +227,7 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
               )}
             </div>
             {balance !== null && BigInt(balance) < BigInt(remaining) && (
-              <p className="mt-2 text-xs text-muted">
+              <p className="mt-2 text-xs text-[#8a5a00]">
                 {run.network !== "mainnet"
                   ? "Not enough test USDC in this wallet yet. “Get test USDC” mints the missing amount of the test token to your wallet; it has no real value."
                   : "This wallet does not hold enough USDC to fund the run."}
@@ -239,30 +239,39 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
         {status === "active" && (
           <p className="mt-2 text-sm leading-6">
             Fully funded. Claims are open until {new Date(chain!.claim_deadline_ms).toLocaleString()}. Share the claim link:{" "}
-            <span className="num break-all">{typeof window === "undefined" ? "" : window.location.origin}/claim/{run.runKey}</span>
-            <span className="block text-xs text-muted">The link shows nothing by itself: each recipient must sign with their own wallet to see their row.</span>
+            <span className="num break-all font-semibold text-[#0667DC]">{typeof window === "undefined" ? "" : window.location.origin}/claim/{run.runKey}</span>
+            <span className="block text-xs text-[#322E25]/60 mt-1">The link shows nothing by itself: each recipient must sign with their own wallet to see their row.</span>
           </p>
         )}
       </Step>
 
-      <div className="flex items-center gap-3">
-        <button className="btn-quiet" onClick={() => void act("sync", async () => null)} disabled={busy !== null}>
+      <div className="flex items-center gap-3 pt-2">
+        <button className="btn-quiet text-xs" onClick={() => void act("sync", async () => null)} disabled={busy !== null}>
           {busy === "sync" ? "Reading the contract…" : "Refresh on-chain status"}
         </button>
-        <span className="text-xs text-muted">{waiting ? "The page also re-reads the contract every 5 seconds while it waits for approvals or funds." : "Reads the run from the contract."}</span>
+        <span className="text-xs text-[#322E25]/60">{waiting ? "The page also re-reads the contract every 5 seconds while it waits for approvals or funds." : "Reads the run from the contract."}</span>
       </div>
     </div>
   );
 }
 
 function Step({ title, state, children }: { title: string; state: "done" | "now" | "later"; children: React.ReactNode }) {
+  const stateCls =
+    state === "done"
+      ? "border border-[#0667DC]/30 bg-[#e8f1fc]"
+      : state === "now"
+      ? "border-2 border-[#322E25] bg-[#E1D7C0]/60"
+      : "border border-[#322E25]/15 bg-[#E1D7C0]/60 opacity-60";
+
   return (
-    <div className={`card p-5 ${state === "now" ? "border-ink" : ""} ${state === "later" ? "opacity-60" : ""}`}>
-      <p className="flex items-center gap-2 font-medium">
-        <span className={state === "done" ? "text-accent" : "text-muted"}>{state === "done" ? "✓" : state === "now" ? "→" : "·"}</span>
+    <div className={`p-5 ${stateCls}`}>
+      <p className="flex items-center gap-2 font-bold text-sm uppercase tracking-wide">
+        <span className={state === "done" ? "text-[#0667DC]" : state === "now" ? "text-[#322E25]" : "text-[#322E25]/40"}>
+          {state === "done" ? "✓" : state === "now" ? "→" : "·"}
+        </span>
         {title}
       </p>
-      <div className="mt-2">{children}</div>
+      <div className="mt-3">{children}</div>
     </div>
   );
 }
@@ -271,11 +280,11 @@ function Cli({ label, command }: { label: string; command: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="mt-3">
-      <p className="text-xs text-muted">{label}</p>
+      <p className="text-xs text-[#322E25]/60">{label}</p>
       <div className="mt-1 flex items-start gap-2">
-        <pre className="num flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-line bg-paper p-3 text-xs">{command}</pre>
+        <pre className="num flex-1 overflow-x-auto whitespace-pre-wrap break-all border border-[#322E25]/20 bg-[#E9E1CD] p-3 text-xs">{command}</pre>
         <button
-          className="btn-quiet shrink-0"
+          className="btn-quiet shrink-0 text-xs"
           onClick={() => {
             void navigator.clipboard.writeText(command).then(() => {
               setCopied(true);
