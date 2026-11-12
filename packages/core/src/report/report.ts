@@ -9,6 +9,8 @@ import type { Review, RowEdit } from "./review.ts";
 
 export const REPORT_SCHEMA = "blindroll.report.v1";
 export const NOTE_CURRENCY_DEFAULTED = "currency defaulted to USDC";
+/** The run was typed in as payees: fixed columns, so no AI mapping call was needed. */
+export const NOTE_FIXED_COLUMNS = "AI mapping not needed: fixed columns (payees added by hand)";
 
 /** docs/05 step 5. Holds no per-person amounts, no addresses and no names: safe to publish. */
 export interface AttestedReport {
@@ -57,6 +59,8 @@ export interface BuildReportInput {
   /** Data rows in the uploaded file, including empty rows that were dropped. */
   csvRowCount: number;
   ai: AiMappingEvidence | null;
+  /** True when the columns came from the fixed payee format (no AI call). Adds NOTE_FIXED_COLUMNS. */
+  fixedColumns?: boolean;
   approvers: string[];
   threshold: number;
 }
@@ -103,7 +107,7 @@ export function buildReport(input: BuildReportInput): AttestedReport {
     rules: { version: RULES_VERSION, errors: review.errorCount, warnings: review.warningCount, results },
     // The edit log itself holds addresses and reasons, so only its hash is published.
     edits: { count: input.edits.length, log_sha256: sha256HexOfJson(input.edits) },
-    notes: review.currencyDefaulted ? [NOTE_CURRENCY_DEFAULTED] : [],
+    notes: [...(input.fixedColumns ? [NOTE_FIXED_COLUMNS] : []), ...(review.currencyDefaulted ? [NOTE_CURRENCY_DEFAULTED] : [])],
     ai:
       ai === null
         ? null

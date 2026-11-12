@@ -264,7 +264,7 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
   async function uploadPayees() {
     if (payees.length === 0) return;
     const csv = new File([buildPayeeCsv(payees)], "payees.csv", { type: "text/csv" });
-    await send(csv, name.trim() || `Payees ${new Date().toISOString().slice(0, 10)}`);
+    await send(csv, name.trim() || `Payees ${new Date().toISOString().slice(0, 10)}`, "payees");
   }
 
   function addPayee(e: FormEvent) {
@@ -274,13 +274,14 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
     setDraft({ name: "", wallet: "", amount: "", memo: "" });
   }
 
-  async function send(csv: File, runName: string) {
+  async function send(csv: File, runName: string, source: "csv" | "payees" = "csv") {
     setBusy(true);
     setError(null);
     try {
       const form = new FormData();
       form.set("file", csv);
       form.set("name", runName);
+      form.set("source", source);
       form.set("orgId", orgId);
       const { runKey } = await api<{ runKey: string }>("/api/runs", { form });
       router.push(`/runs/${runKey}`);
@@ -355,7 +356,7 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
                 {busy ? "Reading the payees…" : `Check ${payees.length} payee${payees.length === 1 ? "" : "s"}`}
               </button>
               <p className="mt-2 text-xs text-[#322E25]/60 leading-5">
-                {aiLive ? "Like an upload, this makes one NEAR AI Cloud mapping call for the new list." : "Live AI mapping is off, so you confirm the column mapping by hand."}
+                AI mapping not needed: the columns are fixed, so no NEAR AI Cloud call is made. The rules and the review are the same as for a file.
               </p>
             </>
           )}

@@ -36,7 +36,7 @@ export const runs = sqliteTable("runs", {
   encCsv: text("enc_csv").notNull(),
   /** AES-256-GCM JSON of the validated column mapping; null until mapped. */
   encMapping: text("enc_mapping"),
-  /** ai | manual */
+  /** ai | manual | fixed (hand-typed payees, fixed columns, no AI call) */
   mappingSource: text("mapping_source"),
   aiCallId: integer("ai_call_id"),
   tableSha256: text("table_sha256"),

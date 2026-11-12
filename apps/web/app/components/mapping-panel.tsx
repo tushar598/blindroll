@@ -49,6 +49,8 @@ export function MappingPanel({ run, onChanged }: { run: RunView; onChanged: () =
                 <li className="text-[#322E25]/60">– Attestation: stored, signer and nonce match; the Intel quote itself is not verified in this version</li>
               </ul>
             </>
+          ) : run.mappingSource === "fixed" ? (
+            <p>AI mapping not needed: fixed columns. These payees were added by hand, so code reads the columns directly; the rules below still apply, and the report notes it.</p>
           ) : (
             <p>Columns mapped by hand. No AI call backs this run, and the report will say so.</p>
           )}

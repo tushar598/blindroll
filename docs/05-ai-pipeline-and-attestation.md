@@ -136,6 +136,8 @@ Implemented in `packages/core/src/ai/`:
 | g | Intel TDX quote signature (DCAP) | **not verified** | needs a DCAP verifier plus Intel's current collateral (PCK chain, TCB info, QE identity). Not added: it is a new dependency that also fetches collateral from Intel's or a third party's service, which needs the owner's approval |
 | h | NVIDIA GPU evidence | **not verified** | the page only notes that `nvidia_payload` is present and echoes our nonce; verifying it needs NVIDIA's attestation verifier (local or the NRAS service). Out of scope |
 
+The RTMR3 replay rule (check e) is not spelled out on the NEAR AI pages; it was derived from the dstack event-log procedure and confirmed against both quotes in the recorded fixture (model and gateway reports).
+
 **What this means:** checks b–f prove the evidence is internally consistent and tied to the signed response and our nonce. **They do not prove the quote came from real TDX hardware** until check g is done; the page says so above the list. The report field `ai.attestation.verified` stays `false`.
 
 **Not checked either:** the gateway attestation (the response is signed by the model key, not the gateway), the TLS fingerprint binding (not requested), a policy allowlist of measurements (MRTD, RTMR0–2, `os_image_hash`), and freshness beyond the nonce (the backend generates the nonce, so a verifier trusts the backend that it was fresh).
@@ -173,7 +175,7 @@ Canonical JSON (RFC 8785 / `canonicalize` npm package), hashed with SHA-256 → 
 `row_hash` = sha256 of the leaf hash, so findings can be matched to rows by approvers without revealing them publicly.
 
 Fields added while building (`packages/core/src/report/`, 2026-11-11):
-- `notes`: plain-language notes on how the table was read. `"currency defaulted to USDC"` appears when the file has no currency column; otherwise the array is empty.
+- `notes`: plain-language notes on how the table was read. `"AI mapping not needed: fixed columns (payees added by hand)"` appears first when the run was typed in with "Or add payees by hand" (fixed mapping `PAYEE_MAPPING` in `packages/core/src/csv/payees.ts`, no AI call, `ai: null`). `"currency defaulted to USDC"` appears when the file has no currency column. Otherwise the array is empty.
 - `ai.signature_verified`: whether the signature checks in Step 4 passed at finalize time. `ai.signature` is `null` when no signature was available.
 - `ai.attestation.sha256`: sha256 of the raw preflight attestation text that the backend stores. `ai.attestation.verified` is `false` in the MVP (no Intel quote verification).
 - `ai` is `null` when the approver mapped the columns by hand (the manual fallback), so no AI call backs the run.

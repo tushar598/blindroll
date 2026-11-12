@@ -7,7 +7,7 @@ import { createRun, listRuns } from "@/lib/server/runs";
 
 export const GET = handle(async (req) => NextResponse.json({ runs: listRuns(db(), await requireApprover(req)) }));
 
-/** multipart: file (CSV), name, orgId. */
+/** multipart: file (CSV), name, orgId, optional source ("payees" = typed on the upload screen, fixed columns). */
 export const POST = handle(async (req) => {
   const accountId = await requireApprover(req);
   let form: FormData;
@@ -23,6 +23,7 @@ export const POST = handle(async (req) => {
     throw new HttpError(400, "bad_request", "file, name and orgId are required");
   }
   if (file.size > MAX_CSV_BYTES) throw new HttpError(400, "too_large", "The CSV file is larger than 2 MB");
-  const result = await createRun(runDeps(), { accountId, orgId, name, csvBytes: new Uint8Array(await file.arrayBuffer()) });
+  const source = form.get("source") === "payees" ? "payees" : "csv";
+  const result = await createRun(runDeps(), { accountId, orgId, name, source, csvBytes: new Uint8Array(await file.arrayBuffer()) });
   return NextResponse.json(result, { status: 201 });
 });

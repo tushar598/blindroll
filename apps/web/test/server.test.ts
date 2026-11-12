@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type FetchLike, checkAttestationEvidence, reportSha256, sha256, verifyProof } from "@blindroll/core";
+import { type FetchLike, NOTE_CURRENCY_DEFAULTED, NOTE_FIXED_COLUMNS, type PayeeDraft, buildPayeeCsv, checkAttestationEvidence, reportSha256, sha256, verifyProof } from "@blindroll/core";
 import { HttpError, SIGN_IN_MESSAGE, SIGN_IN_RECIPIENT, issueNonce, verifySignIn } from "../lib/server/auth";
 import type { ServerConfig } from "../lib/server/config";
 import { decrypt, encrypt } from "../lib/server/crypto";
@@ -284,5 +284,45 @@ describe("demo org approvers from DEMO_ORG_APPROVERS", () => {
     } finally {
       delete process.env.DEMO_ORG_APPROVERS;
     }
+  });
+});
+
+describe("hand-typed payees (fixed columns, no AI call)", () => {
+  const payeeCsv = (rows: PayeeDraft[]) => new TextEncoder().encode(buildPayeeCsv(rows));
+  const rows: PayeeDraft[] = [
+    { name: "Asha", wallet: "asha.testnet", amount: "1,200.50", memo: "October" },
+    { name: "Ben", wallet: "0x8ba1f109551bd432803012645ac136ddd64dba72", amount: "800", memo: "" },
+  ];
+
+  it("reads them with the fixed mapping even when live AI is on, and the report notes it", async () => {
+    const db = openDb(":memory:");
+    const replay = replayFetch();
+    const deps: RunDeps = { db, config, ai: { apiKey: "test-key", fetch: replay.fetch } };
+    const { runKey, mapping } = await createRun(deps, { accountId: APPROVER, orgId: "demo-org", name: "Payees", csvBytes: payeeCsv(rows), source: "payees" });
+    expect(mapping).toBe("fixed");
+    expect(replay.completions()).toBe(0);
+    const view = getRun(deps, { accountId: APPROVER, runKey });
+    expect(view).toMatchObject({ status: "review", mappingSource: "fixed", ai: null });
+    expect(view.rows.map((r) => r.amount)).toEqual(["1200500000", "800000000"]);
+    // The same rules run: here there is nothing to fix, so it finalizes straight away.
+    finalize(deps, { accountId: APPROVER, runKey, claimDays: 14 });
+    const report = JSON.parse(getReportJson(db, runKey)!);
+    expect(report.ai).toBeNull();
+    expect(report.notes).toEqual([NOTE_FIXED_COLUMNS, NOTE_CURRENCY_DEFAULTED]);
+    expect(getAttestationText(db, runKey)).toBeNull();
+  });
+
+  it("still applies the rules (a bad wallet is an error that blocks finalize)", async () => {
+    const db = openDb(":memory:");
+    const deps: RunDeps = { db, config: { ...config, aiLive: false } };
+    const { runKey } = await createRun(deps, { accountId: APPROVER, orgId: "demo-org", name: "Bad", source: "payees", csvBytes: payeeCsv([{ name: "X", wallet: "not a wallet", amount: "10", memo: "" }]) });
+    expect(getRun(deps, { accountId: APPROVER, runKey }).findings.map((f) => f.ruleId)).toContain("R001_invalid_address");
+    expect(() => finalize(deps, { accountId: APPROVER, runKey, claimDays: 14 })).toThrow();
+  });
+
+  it("refuses a file that does not have exactly the payee columns", async () => {
+    const db = openDb(":memory:");
+    const deps: RunDeps = { db, config: { ...config, aiLive: false } };
+    await expect(createRun(deps, { accountId: APPROVER, orgId: "demo-org", name: "Not payees", csvBytes, source: "payees" })).rejects.toMatchObject({ code: "bad_request" });
   });
 });

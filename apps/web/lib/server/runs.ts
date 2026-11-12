@@ -7,6 +7,7 @@ import {
   type ColumnMapping,
   type CreateRunArgs,
   type Override,
+  PAYEE_MAPPING,
   type ParsedCsv,
   type Review,
   type RowEdit,
@@ -15,6 +16,7 @@ import {
   buildReport,
   finalizeRun,
   formatUsdc,
+  isPayeeHeader,
   parseCsv,
   randomSaltHex,
   reportCanonicalJson,
@@ -92,7 +94,11 @@ function assertStatus(run: RunRecord, allowed: string[], what: string) {
  * Upload: parse, then get the column mapping. Order: cache by csv_sha256 → one live NEAR AI Cloud
  * call (only when NEAR_AI_LIVE=1) → otherwise the approver maps the columns by hand.
  */
-export async function createRun(deps: RunDeps, input: { accountId: string; orgId: string; name: string; csvBytes: Uint8Array }) {
+export async function createRun(
+  deps: RunDeps,
+  /** source "payees": typed on the upload screen; read with the fixed PAYEE_MAPPING, no AI call. */
+  input: { accountId: string; orgId: string; name: string; csvBytes: Uint8Array; source?: "csv" | "payees" },
+) {
   const { db, config } = deps;
   const { approvers } = orgPolicy(db, input.orgId);
   if (!approvers.includes(input.accountId)) throw new HttpError(403, "forbidden", "You are not an approver of this organization");
@@ -103,9 +109,13 @@ export async function createRun(deps: RunDeps, input: { accountId: string; orgId
 
   let mapping: ColumnMapping | null = null;
   let aiCallId: number | null = null;
-  let aiNote: "cached" | "live" | "ai_off" | "ai_failed";
-  const cached = db.select().from(aiCalls).where(eq(aiCalls.csvSha256, csv.csvSha256)).get();
-  if (cached) {
+  let aiNote: "cached" | "live" | "ai_off" | "ai_failed" | "fixed";
+  const cached = input.source === "payees" ? undefined : db.select().from(aiCalls).where(eq(aiCalls.csvSha256, csv.csvSha256)).get();
+  if (input.source === "payees") {
+    if (!isPayeeHeader(csv.headers)) throw new HttpError(400, "bad_request", "Hand-typed payees must use the fixed columns Name, Wallet, Amount (USDC), Memo");
+    mapping = validateMapping(PAYEE_MAPPING, csv.headers);
+    aiNote = "fixed";
+  } else if (cached) {
     const ev = decryptJson<StoredEvidence & { mapping: ColumnMapping }>(cached.encEvidence);
     mapping = validateMapping(ev.mapping, csv.headers);
     aiCallId = cached.id;
@@ -159,7 +169,7 @@ export async function createRun(deps: RunDeps, input: { accountId: string; orgId
       csvSha256: csv.csvSha256,
       encCsv: encrypt(input.csvBytes),
       encMapping: mapping ? encryptJson(mapping) : null,
-      mappingSource: mapping ? "ai" : null,
+      mappingSource: aiNote === "fixed" ? "fixed" : mapping ? "ai" : null,
       aiCallId,
       createdBy: input.accountId,
       createdAt: nowIso(),
@@ -318,6 +328,7 @@ export function finalize(deps: RunDeps, input: { accountId: string; runKey: stri
     csvSha256: run.csvSha256,
     csvRowCount: cur.csv.rows.length + cur.csv.droppedEmptyRows.length,
     ai: runEvidence(db, run),
+    fixedColumns: run.mappingSource === "fixed",
     approvers,
     threshold: org.threshold,
   });

@@ -48,7 +48,7 @@ export interface RunView {
   org: { id: string; name: string; approvers: string[]; threshold: number; refundAccount: string };
   csvSha256: string;
   headers: string[];
-  mappingSource: "ai" | "manual" | null;
+  mappingSource: "ai" | "manual" | "fixed" | null;
   mapping: Mapping | null;
   aiLive: boolean;
   ai: { model: string; chatId: string; signatureVerified: boolean; attestationVerified: boolean } | null;

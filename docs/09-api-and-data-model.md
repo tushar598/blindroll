@@ -102,7 +102,7 @@ nonces(nonce, purpose, expires_at, used)
 
 Differences in the built schema (`apps/web/lib/server/db.ts`; tables are created at startup, no migration tool):
 - `orgs` also has `threshold` and `refund_account`; `org_approvers` has `position` (the approver order used in `create_run`). The demo org is seeded from `DEMO_ORG` in `lib/server/config.ts`.
-- `runs` also has `enc_csv` (the uploaded file, AES-256-GCM), `enc_mapping`, `mapping_source` (`ai` | `manual`), `ai_call_id`, `report_json` (the canonical report), `chain_json` (last on-chain view).
+- `runs` also has `enc_csv` (the uploaded file, AES-256-GCM), `enc_mapping`, `mapping_source` (`ai` | `manual` | `fixed`: hand-typed payees, read with the fixed payee mapping, no AI call; the report notes "AI mapping not needed: fixed columns (payees added by hand)"), `ai_call_id`, `report_json` (the canonical report), `chain_json` (last on-chain view).
 - `findings` is not a table: findings are recomputed from the CSV, mapping, edits and overrides (`reviewRun`), so they cannot go stale.
 - `row_edits(id, run_id, by_account, enc_edit, created_at)`: the ordered, encrypted edit log. `overrides(run_id, rule_id, row_number, by_account, enc_reason, created_at)`, unique per finding.
 - `ai_calls` is keyed by `csv_sha256` (the cache): `enc_evidence` holds the request body, raw response bytes, signature and checks; `attestation_json` holds the raw preflight report.
