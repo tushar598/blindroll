@@ -1844,3 +1844,236 @@ fn payout_json_shape() {
         serde_json::from_str::<Payout>(r#"{"kind":"near_ft","receiver":"Not Valid"}"#).is_err()
     );
 }
+
+// ───────────── Edge cases added after the external review (2026-11-12) ─────────────
+
+/// A "claim-demo" run that was created and approved, then cancelled before any funding.
+fn cancelled(name: &str) -> (Blindroll, Value) {
+    let mut c = new_contract();
+    let t = tree(name);
+    create(&mut c, &t);
+    approve_both(&mut c, s(&t["run_key"]));
+    ctx(A1);
+    c.cancel_run(s(&t["run_key"]).to_string());
+    assert_eq!(run_of(&c, &t).status, RunStatus::Cancelled);
+    (c, t)
+}
+
+/// A "claim-demo" run that is Approved and only partly funded (one base unit short).
+fn partly_funded(name: &str) -> (Blindroll, Value) {
+    let mut c = new_contract();
+    let t = tree(name);
+    create(&mut c, &t);
+    approve_both(&mut c, s(&t["run_key"]));
+    assert_eq!(fund(&mut c, s(&t["run_key"]), total_of(&t) - 1), 0);
+    assert_eq!(run_of(&c, &t).status, RunStatus::Approved);
+    (c, t)
+}
+
+#[test]
+#[should_panic(expected = "Run is not Active")]
+fn claim_near_on_cancelled_run_fails() {
+    let (mut c, t) = cancelled("claim-demo");
+    claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
+}
+
+#[test]
+#[should_panic(expected = "Run is not Active")]
+fn claim_near_on_partly_funded_run_fails() {
+    let (mut c, t) = partly_funded("claim-demo");
+    claim_near_leaf(&mut c, &t, 1, near_ft("ben.test.near"));
+}
+
+#[test]
+#[should_panic(expected = "This leaf has already been claimed")]
+fn relayed_claim_cannot_be_made_twice() {
+    let (mut c, t) = active("claim-demo");
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+#[should_panic(expected = "Invalid Merkle proof")]
+fn relayed_claim_with_wrong_proof_fails() {
+    let (mut c, t) = active("claim-demo");
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 3);
+}
+
+#[test]
+#[should_panic(expected = "Run is not Active")]
+fn relayed_claim_on_cancelled_run_fails() {
+    let (mut c, t) = cancelled("claim-demo");
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+#[should_panic(expected = "Run is not Active")]
+fn relayed_claim_on_partly_funded_run_fails() {
+    let (mut c, t) = partly_funded("claim-demo");
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+}
+
+#[test]
+fn relayed_claim_pays_the_leaf_account_even_when_another_leaf_is_claimed_first() {
+    // The relayer has no receiver argument: each relayed claim pays exactly its own leaf's account.
+    let (mut c, t) = active("claim-demo");
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 1), 1);
+    assert_paid("ben.test.near", 800_000_000);
+    relayed(&mut c, RELAYER, &t, leaf_of(&t, 3), 3);
+    let calls = token_calls();
+    let last = calls.last().unwrap();
+    assert_eq!(last.0, "ft_transfer");
+    assert_eq!(last.1["receiver_id"], leaf_of(&t, 3).address.as_str());
+    assert_invariants(&run_of(&c, &t));
+}
+
+#[test]
+#[should_panic(expected = "Run is not Active")]
+fn claim_evm_on_cancelled_run_fails() {
+    let e = evm_case(0);
+    let (mut c, _) = cancelled("claim-demo");
+    ctx(RELAYER);
+    claim_evm_case(&mut c, &e);
+}
+
+#[test]
+#[should_panic(expected = "Run is not Active")]
+fn claim_evm_before_funding_fails() {
+    let mut c = new_contract();
+    let e = evm_case(0);
+    create(&mut c, &e.tree);
+    approve_both(&mut c, s(&e.tree["run_key"]));
+    ctx(RELAYER);
+    claim_evm_case(&mut c, &e);
+}
+
+#[test]
+#[should_panic(expected = "Run is not Active")]
+fn claim_evm_on_partly_funded_run_fails() {
+    let (mut c, _) = partly_funded("claim-demo");
+    let e = evm_case(0);
+    ctx(RELAYER);
+    claim_evm_case(&mut c, &e);
+}
+
+#[test]
+#[should_panic(expected = "Contract is paused")]
+fn claim_evm_while_paused_fails() {
+    let (mut c, _) = active("claim-demo");
+    ctx(OWNER);
+    c.set_paused(true);
+    let e = evm_case(0);
+    ctx(RELAYER);
+    claim_evm_case(&mut c, &e);
+}
+
+#[test]
+#[should_panic(expected = "Claim deadline has passed")]
+fn claim_evm_after_deadline_fails() {
+    let (mut c, _) = active("claim-demo");
+    let mut e = evm_case(0);
+    // Even with a signature that has not expired, the run's deadline wins.
+    e.expires_at_ms = DEADLINE + 10;
+    ctx_at(RELAYER, DEADLINE + 1);
+    claim_evm_case(&mut c, &e);
+}
+
+#[test]
+#[should_panic(expected = "Invalid Merkle proof")]
+fn claim_evm_with_wrong_proof_fails() {
+    let (mut c, _) = active("claim-demo");
+    let e = evm_case(0);
+    ctx(RELAYER);
+    c.claim_evm(
+        s(&e.tree["run_key"]).to_string(),
+        leaf_of(&e.tree, e.index),
+        proof_of(&e.tree, (e.index + 1) % 4),
+        e.payout.clone(),
+        e.destination_asset.clone(),
+        e.destination_address.clone(),
+        e.expires_at_ms,
+        e.signature.clone(),
+    )
+    .detach();
+}
+
+#[test]
+#[should_panic(expected = "This leaf has already been claimed")]
+fn claim_evm_cannot_be_made_twice() {
+    let (mut c, _) = active("claim-demo");
+    let e = evm_case(0);
+    ctx(RELAYER);
+    claim_evm_case(&mut c, &e);
+    claim_evm_case(&mut c, &e);
+}
+
+#[test]
+#[should_panic(expected = "Only an approver")]
+fn relayer_cannot_reopen_claim() {
+    let (mut c, t) = active("claim-demo");
+    claim_oneclick_settled(&mut c, &t, 1);
+    ctx(RELAYER);
+    c.reopen_claim(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][1]).to_string(),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Only an approver")]
+fn recipient_cannot_reopen_own_claim() {
+    let (mut c, t) = active("claim-demo");
+    claim_oneclick_settled(&mut c, &t, 1);
+    ctx("ben.test.near");
+    c.reopen_claim(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][1]).to_string(),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Only an approver")]
+fn contract_owner_cannot_reopen_claim() {
+    let (mut c, t) = active("claim-demo");
+    claim_oneclick_settled(&mut c, &t, 1);
+    ctx(OWNER);
+    c.reopen_claim(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][1]).to_string(),
+    );
+}
+
+#[test]
+#[should_panic(expected = "leaf_hash_hex must be 64 lowercase hex chars")]
+fn reopen_with_malformed_leaf_hash_fails() {
+    let (mut c, t) = active("claim-demo");
+    claim_oneclick_settled(&mut c, &t, 1);
+    ctx(A1);
+    c.reopen_claim(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][1]).to_uppercase(),
+    );
+}
+
+#[test]
+#[should_panic(expected = "not marked as claimed")]
+fn reopen_of_another_leaf_than_the_claimed_one_fails() {
+    // reopen_claim takes no amount: it can only release the amount stored for a claimed leaf.
+    // Naming a different (unclaimed) leaf, e.g. one with a larger amount, is refused.
+    let (mut c, t) = active("claim-demo");
+    claim_oneclick_settled(&mut c, &t, 1); // Ben, 800 USDC
+    ctx(A1);
+    c.reopen_claim(
+        s(&t["run_key"]).to_string(),
+        s(&t["leaf_hashes"][3]).to_string(),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Run not found")]
+fn reopen_on_unknown_run_fails() {
+    let (mut c, t) = active("claim-demo");
+    claim_oneclick_settled(&mut c, &t, 1);
+    ctx(A1);
+    c.reopen_claim("no-such-run".into(), s(&t["leaf_hashes"][1]).to_string());
+}
