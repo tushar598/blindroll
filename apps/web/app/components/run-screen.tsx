@@ -6,6 +6,7 @@ import { api, errorMessage } from "@/lib/client/api";
 import type { RunView } from "@/lib/client/types";
 import { ChainSteps } from "./chain-steps";
 import { MappingPanel } from "./mapping-panel";
+import { TrustNotice } from "./notices";
 import { PayoutsPanel } from "./payouts-panel";
 import { ReviewPanel } from "./review-panel";
 import { useSession } from "./session";
@@ -56,6 +57,7 @@ export function RunScreen() {
           {run.runKey} · {run.org.name} · {run.org.threshold} of {run.org.approvers.length} approvers
         </p>
       </div>
+      <TrustNotice />
       {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{error}</p>}
 
       <Section n={1} title="Columns" done={mapped}>

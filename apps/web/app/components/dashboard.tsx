@@ -55,7 +55,7 @@ export function Dashboard() {
                   <span className="text-[#0667DC]">✳</span>
                   <span>ONE-CLICK CLAIMS</span>
                   <span className="text-[#0667DC]">✳</span>
-                  <span>CONFIDENTIAL ENCLAVE</span>
+                  <span>TEE-HOSTED AI</span>
                   <span className="text-[#0667DC]">✳</span>
                   <span>MONEY WITH A MIND OF ITS OWN</span>
                   <span className="text-[#0667DC]">✳</span>
@@ -147,16 +147,16 @@ export function Dashboard() {
               </h2>
             </div>
             <p className="text-xs font-mono text-[#322E25]/60 max-w-xs">
-              Four automated stages. Cryptographic privacy end to end.
+              Four stages. Only a Merkle root and a report hash go on-chain.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { num: '01', title: 'Upload & Parse', desc: 'Upload any messy payroll CSV. NEAR AI Cloud maps columns inside a confidential enclave with emails masked.' },
+              { num: '01', title: 'Upload & Parse', desc: 'Upload any messy payroll CSV. NEAR AI Cloud (a TEE-hosted model) proposes the column mapping from the header and 5 sample rows, emails masked. The response is signed.' },
               { num: '02', title: 'Rules & Edits', desc: 'Addresses, formats, and totals are validated. Outliers require written reasons before approval.' },
               { num: '03', title: 'Lock & Fund', desc: 'Rows become salted Merkle leaves. Approvers sign on NEAR to store the root and lock USDC.' },
-              { num: '04', title: 'Private Claim', desc: 'Recipients sign a view challenge to reveal their row and claim directly to NEAR or cross-chain via 1Click.' },
+              { num: '04', title: 'Self-Serve Claim', desc: 'Recipients sign a view challenge to reveal their row and claim directly to NEAR or cross-chain via 1Click.' },
             ].map((step) => (
               <div key={step.num} className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-5">
                 <div className="flex items-center justify-between pb-2 mb-3 border-b border-[#322E25]/15">
@@ -198,14 +198,14 @@ export function Dashboard() {
                 </li>
                 <li className="flex items-start gap-2.5">
                   <span className="text-[#0667DC] font-bold">✓</span>
-                  <span>Claimed payout transactions and token transfers</span>
+                  <span>Each claim: that one recipient&apos;s address, amount and transfer</span>
                 </li>
               </ul>
             </div>
 
             <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6">
               <div className="text-[11px] font-mono uppercase tracking-widest text-[#322E25]/60 mb-3 pb-2 border-b border-[#322E25]/15">
-                [ 02 / PRIVATE OFF-CHAIN ]
+                [ 02 / OFF-CHAIN, NOT PUBLIC ]
               </div>
               <ul className="space-y-3 text-xs font-mono text-[#322E25]/85">
                 <li className="flex items-start gap-2.5">
@@ -218,13 +218,16 @@ export function Dashboard() {
                 </li>
                 <li className="flex items-start gap-2.5">
                   <span className="text-[#322E25]/40 font-bold">×</span>
-                  <span>AI prompts and raw responses (only cryptographic hashes stored)</span>
+                  <span>AI prompts and raw responses (only their hashes and the signature are in the report)</span>
                 </li>
                 <li className="flex items-start gap-2.5">
                   <span className="text-[#322E25]/40 font-bold">×</span>
                   <span>Individual salary amounts before a claim is submitted</span>
                 </li>
               </ul>
+              <p className="mt-4 pt-3 border-t border-[#322E25]/15 text-[11px] font-mono leading-5 text-[#322E25]/70">
+                Off-chain still means the Blindroll server can read the full table (encrypted at rest) and the approvers review it. Future work: run the backend in a TEE.
+              </p>
             </div>
           </div>
         </section>

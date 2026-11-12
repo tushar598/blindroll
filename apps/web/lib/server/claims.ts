@@ -45,6 +45,9 @@ export interface ClaimDeps {
   simSink?: { accountId: string; send: RelayFn };
 }
 
+/** Shown on every cross-chain option: the numbers come from a real 1Click dry quote (no funds move). */
+export const ESTIMATE_NOTE = "Estimated from live mainnet quote";
+
 export const SIMULATED_NOTE =
   "Simulated on testnet: 1Click has no testnet, so nothing is delivered on the destination chain. The contract really pays your test USDC to a holding account.";
 
@@ -223,10 +226,10 @@ export async function payoutOptions(deps: ClaimDeps, scope: ViewScope): Promise<
               ...(mainnet
                 ? { simulated: false, available: false, unavailableReason: "Cross-chain claims are not enabled on mainnet in this version." }
                 : deps.simSink
-                  ? { simulated: true, available: true, note: `Estimate from mainnet prices. ${SIMULATED_NOTE}` }
+                  ? { simulated: true, available: true, note: `${ESTIMATE_NOTE} — delivery simulated on testnet.` }
                   : {
                       simulated: false, available: false,
-                      unavailableReason: "Estimate from mainnet prices. Cross-chain delivery does not exist on testnet (1Click is mainnet-only), so this option cannot be chosen here.",
+                      unavailableReason: `${ESTIMATE_NOTE}. Cross-chain delivery does not exist on testnet (1Click is mainnet-only), so this option cannot be chosen here.`,
                     }),
             });
           } catch (err) {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
 import type { RunView } from "@/lib/client/types";
 import { callContract, explorerTx } from "@/lib/client/wallet";
+import { CrossChainSimNotice } from "./notices";
 import { useSession } from "./session";
 
 interface Payout {
@@ -83,6 +84,7 @@ export function PayoutsPanel({ run }: { run: RunView }) {
   return (
     <div className="space-y-4">
       {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm font-mono text-[#a3271f]">{error}</p>}
+      {run.network !== "mainnet" && payouts.some((p) => p.simulated) && <CrossChainSimNotice />}
       {payouts.length === 0 && <p className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-5 text-sm font-mono text-[#322E25]/60">No claims yet.</p>}
       {payouts.map((p) => (
         <div key={p.claimId} className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-5 text-sm font-mono">

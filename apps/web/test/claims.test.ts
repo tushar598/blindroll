@@ -369,7 +369,7 @@ describe("simulated cross-chain claim on testnet (sim sink) with a real refund b
     const { options } = await claimSimulated();
     expect(options[0]).toMatchObject({ id: "near-usdc", simulated: false, available: true });
     expect(options[1]).toMatchObject({ id: "oneclick:base:USDC", simulated: true, available: true, estimated: true });
-    expect(options[1]!.note).toContain("Simulated on testnet");
+    expect(options[1]!.note).toBe("Estimated from live mainnet quote — delivery simulated on testnet.");
     const off = await setup();
     expect((await payoutOptions(off.deps, scope(off.runKey))).options[1]).toMatchObject({ simulated: false, available: false });
   });

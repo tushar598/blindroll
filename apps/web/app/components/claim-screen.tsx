@@ -6,6 +6,7 @@ import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { type EvmWallet, connectEvm, discoverEvmWallets, personalSign } from "@/lib/client/evm";
 import { callContract, configureWallets, connectWallet, currentWalletAccount, disconnectWallet, explorerTx, isWalletAccountError, signInMessage } from "@/lib/client/wallet";
 import { NearWalletChoice, useNearWalletChoice } from "./near-wallet-choice";
+import { CrossChainSimNotice, RealBadge, TrustNotice } from "./notices";
 import { SimulatedBadge } from "./payouts-panel";
 
 interface RunInfo {
@@ -249,6 +250,8 @@ export function ClaimScreen() {
           {info.network !== "mainnet" && " This is a testnet run: the token is test USDC with no real value."}
         </p>
       </div>
+      <TrustNotice />
+      {info.network !== "mainnet" && (options?.some((o) => o.rail === "oneclick") || row?.claim?.simulated) && <CrossChainSimNotice />}
       {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{error}</p>}
 
       {!row && (
@@ -378,12 +381,17 @@ export function ClaimScreen() {
           <div className="mt-4 border border-[#322E25]/15">
             {options === null && <p className="p-4 text-sm font-mono text-[#322E25]/70">Loading options…</p>}
             {options?.map((o) => (
-              <label key={o.id} className={`flex gap-3 border-b border-[#322E25]/10 last:border-b-0 p-4 ${o.available ? "cursor-pointer" : "opacity-70"} ${optionId === o.id ? "bg-[#E9E1CD]" : ""}`}>
+              <label
+                key={o.id}
+                className={`flex gap-3 border-b border-[#322E25]/10 last:border-b-0 p-4 ${o.available ? "cursor-pointer" : "opacity-70"} ${optionId === o.id ? "bg-[#E9E1CD]" : ""} ${o.id === "near-usdc" ? "border-l-4 border-l-[#0667DC]" : ""}`}
+              >
                 <input type="radio" name="payout-option" className="mt-1 accent-[#0667DC]" disabled={!o.available} checked={optionId === o.id} onChange={() => setOptionId(o.id)} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                     <p className="flex items-center gap-2 font-medium font-mono">
                       {o.label}
+                      {o.id === "near-usdc" && <RealBadge network={info.network} />}
+                      {o.id === "near-usdc" && <span className="text-[10px] uppercase tracking-wider text-[#322E25]/60">Recommended</span>}
                       {o.simulated && <SimulatedBadge />}
                     </p>
                     <p className="font-mono text-sm tabular-nums">
@@ -444,7 +452,7 @@ export function ClaimScreen() {
               </p>
               {prepared.summary.estimatedAmountOut && prepared.summary.decimals !== undefined && (
                 <p className="text-[#322E25]/70">
-                  Estimate from mainnet prices: ~{formatUnits(prepared.summary.estimatedAmountOut, prepared.summary.decimals)} {prepared.summary.symbol}
+                  Estimated from live mainnet quote: ~{formatUnits(prepared.summary.estimatedAmountOut, prepared.summary.decimals)} {prepared.summary.symbol}
                   {prepared.summary.estimatedMinAmountOut && `, at least ${formatUnits(prepared.summary.estimatedMinAmountOut, prepared.summary.decimals)} after slippage`}.
                 </p>
               )}
