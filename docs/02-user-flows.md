@@ -65,6 +65,21 @@ Approver                       Blindroll backend            NEAR AI Cloud (TEE) 
 3. Press **Verify**: the browser recomputes the report hash, checks it against the contract, and verifies the NEAR AI Cloud signature.
 4. Download the **reconciled export** (CSV/JSON): one row per recipient with status `claimed | unclaimed | refunded | reopened`, payout rail, destination, claim tx hash, 1Click deposit address and final status.
 
+## Flow D — Judge sandbox (testnet only, `JUDGE_SANDBOX=1`)
+
+So any judge can try Flows A–C on the hosted testnet app with their own wallet, without anyone sharing keys. No contract change: the contract already accepts `threshold` 1.
+
+1. **Sign in.** The landing page says "Judges: sign in with any testnet account to get a private sandbox." A demo-org approver signs in exactly as before. Any other named account that passes the same checks (NEP-413 signature, one-time nonce, full-access key) gets a **sandbox org** on its first sign-in: id `sandbox:<accountId>`, name `Sandbox – <accountId>`, approvers `[accountId]`, threshold 1, refund account = the account. Signing in again reuses it. Implicit (64-hex) accounts are refused as everywhere else.
+2. **Upload.** The dashboard and the run page show "Sandbox · you are the only approver (1 of 1). Real teams use two or more." The upload screen links a sample (`docs/samples/payroll-sandbox.csv`: the same mistakes as `payroll-messy.csv`, amounts small enough for the cap), and "Or add payees by hand" starts with the signed-in account as the first payee (10 USDC) and the hint "Add your MetaMask address as a second payee to try the EVM claim".
+3. **Review and finalize** as in Flow A. The claim window defaults to **15 minutes**, so Reclaim can be tried in the same session.
+4. **Create → Approve ("1 of 1 needed") → Get test USDC → Fund**, all from the judge's wallet. `create_run` gets approvers `[accountId]`, threshold 1, refund account `accountId`.
+5. **Claim** as in Flow B. In the same browser the claim page offers "Continue as this account" for the judge's NEAR account; the claim is gas-free (relayer).
+6. **Verify** as in Flow C. The public claim, report and verify pages work for sandbox runs exactly as for any run.
+
+**Isolation.** A sandbox user sees and acts only on their own sandbox org's runs: never demo-org runs, never another judge's. Every run, report-builder, export and claim-admin endpoint checks the org server-side (`403` for a run of another org, `404` for an unknown run). The public claim page and the public report/verify page stay open for any run, as before.
+
+**Limits** (sandbox orgs only; the demo org is unchanged), per account and UTC day: 5 runs; 10 rows and 1,000 USDC per run; 2 live AI mappings, plus `SANDBOX_AI_DAILY_CAP` (default 40) across all sandboxes; 5 relayed (gas-free) claims; no relayed claim while the relayer holds less than 1 NEAR. Over an AI limit the upload skips the AI and the manual mapping form says "AI limit reached for today; map the columns by hand"; the cache by CSV hash still applies. Details: [09 → Judge sandbox](09-api-and-data-model.md#judge-sandbox).
+
 ## Edge cases
 
 | Situation | Behaviour |

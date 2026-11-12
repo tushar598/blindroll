@@ -31,6 +31,16 @@ export function CrossChainSimNotice() {
   );
 }
 
+/** Judge sandbox (JUDGE_SANDBOX=1, test networks only): shown on the dashboard and the run page. */
+export function SandboxBadge() {
+  return (
+    <p className="inline-flex flex-wrap items-center gap-2 border border-[#8a5a00]/40 bg-[#fbf0d6] px-2.5 py-1 text-[11px] font-mono text-[#8a5a00]" aria-label="Sandbox">
+      <span className="font-semibold uppercase tracking-wider">Sandbox</span>
+      <span>· you are the only approver (1 of 1). Real teams use two or more.</span>
+    </p>
+  );
+}
+
 /** Marks the one payout rail that is real end to end. */
 export function RealBadge({ network }: { network: string }) {
   return (

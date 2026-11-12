@@ -45,3 +45,11 @@ describe("sim sink guard", () => {
     expect(() => assertNetworkConfig({ ...base, simSinkId: base.tokenId })).toThrow();
   });
 });
+
+describe("judge sandbox guard", () => {
+  it("allows JUDGE_SANDBOX on test networks and refuses it on mainnet", () => {
+    assertNetworkConfig({ network: "testnet", contractId: "blindroll.me.testnet", tokenId: "usdc.me.testnet", judgeSandbox: true });
+    assertNetworkConfig({ network: "mainnet", contractId: "blindroll.near", tokenId: "usdc-token.near", judgeSandbox: false });
+    expect(() => assertNetworkConfig({ network: "mainnet", contractId: "blindroll.near", tokenId: "usdc-token.near", judgeSandbox: true })).toThrow(ValidationError);
+  });
+});

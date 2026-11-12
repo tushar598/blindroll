@@ -11,8 +11,10 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
   const [error, setError] = useState<string | null>(null);
   const [claimDays, setClaimDays] = useState(14);
   /** Test networks only: a claim window in minutes, to try "Reclaim unclaimed funds" without waiting days. */
-  const [unit, setUnit] = useState<"days" | "minutes">("days");
-  const [claimMinutes, setClaimMinutes] = useState(30);
+  // Sandbox runs start at 15 minutes, so a judge can also try Reclaim the same session.
+  const sandboxMinutes = run.sandbox && run.network !== "mainnet";
+  const [unit, setUnit] = useState<"days" | "minutes">(sandboxMinutes ? "minutes" : "days");
+  const [claimMinutes, setClaimMinutes] = useState(sandboxMinutes ? 15 : 30);
   const editable = run.status === "review";
   const s = run.summary!;
   const byRow = new Map<number, RunFinding[]>();

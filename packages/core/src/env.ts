@@ -106,3 +106,15 @@ export function loadAndCheckEnv(
   if (missing.length > 0) throw new EnvError(missing, load);
   return load;
 }
+
+/**
+ * Start-up rules that need no other module (next.config.ts calls this, so the server refuses to
+ * start). The same rules are in config.ts → assertNetworkConfig, which serverConfig() and the
+ * scripts call. Messages name variables, never values.
+ */
+export function assertStartupEnv(env: Record<string, string | undefined> = process.env): void {
+  // The judge sandbox lets any account become a 1-of-1 approver: a test-network demo device only.
+  if (env.JUDGE_SANDBOX?.trim() === "1" && env.NEAR_NETWORK?.trim() === "mainnet") {
+    throw new Error("JUDGE_SANDBOX must not be 1 when NEAR_NETWORK is mainnet");
+  }
+}

@@ -12,6 +12,17 @@ export interface Me {
   org: { id: string; name: string };
   /** NEAR wallet IDs this deployment offers (Meteor always). */
   wallets?: string[];
+  /** Judge sandbox: `enabled` = any testnet account can sign in; `active` = this session is a sandbox org. */
+  sandbox?: { enabled: boolean; active: boolean; limits: SandboxLimits };
+}
+
+export interface SandboxLimits {
+  runsPerDay: number;
+  maxRows: number;
+  maxTotalUsdc: number;
+  aiCallsPerDay: number;
+  relayedClaimsPerDay: number;
+  defaultClaimMinutes: number;
 }
 
 /** Applies the deployment's wallet list before anything can use a wallet. */

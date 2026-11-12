@@ -5,7 +5,8 @@ import { type FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
 import { type PayeeDraft, buildPayeeCsv } from "@/lib/client/payees";
 import { NearWalletChoice, useNearWalletChoice, WalletPickerDialog } from "./near-wallet-choice";
-import { useSession } from "./session";
+import { SandboxBadge } from "./notices";
+import { type SandboxLimits, useSession } from "./session";
 import { StatusPill } from "./status-pill";
 
 interface RunListItem {
@@ -93,6 +94,13 @@ export function Dashboard() {
             <NearWalletChoice choice={wallet} disabled={busy} />
           </div>
           {picking && <WalletPickerDialog choice={wallet} onClose={() => setPicking(false)} onPick={() => void signIn()} />}
+          {me?.sandbox?.enabled && (
+            <p className="mt-4 max-w-xl border border-[#8a5a00]/40 bg-[#fbf0d6] px-3.5 py-2.5 text-xs font-mono leading-5 text-[#8a5a00]">
+              <span className="font-semibold">Judges: sign in with any testnet account to get a private sandbox.</span> You are its only approver (1 of 1); your runs are
+              visible only to you. Testnet and test USDC only. Limits: {me.sandbox.limits.runsPerDay} runs a day, {me.sandbox.limits.maxRows} rows and{" "}
+              {me.sandbox.limits.maxTotalUsdc.toLocaleString("en-US")} test USDC per run.
+            </p>
+          )}
           {error && <p className="mt-4 max-w-xl border border-[#a3271f]/30 bg-[#f8e6e2] px-3.5 py-2.5 text-xs font-mono text-[#a3271f]">{error}</p>}
         </div>
 
@@ -237,15 +245,18 @@ export function Dashboard() {
       </div>
     );
   }
-  return <ApproverHome orgId={me.org.id} orgName={me.org.name} aiLive={me.aiLive} />;
+  const sandbox = me.sandbox?.active ? me.sandbox.limits : null;
+  return <ApproverHome orgId={me.org.id} orgName={me.org.name} aiLive={me.aiLive} accountId={me.accountId} sandbox={sandbox} />;
 }
 
-function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: string; aiLive: boolean }) {
+function ApproverHome({ orgId, orgName, aiLive, accountId, sandbox }: { orgId: string; orgName: string; aiLive: boolean; accountId: string; sandbox: SandboxLimits | null }) {
   const router = useRouter();
   const [runs, setRuns] = useState<RunListItem[] | null>(null);
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [payees, setPayees] = useState<PayeeDraft[]>([]);
+  // Sandbox: the judge's own account is the first payee, so the claim can be tried with the same wallet.
+  const [payees, setPayees] = useState<PayeeDraft[]>(() => (sandbox ? [{ name: "Me (sandbox)", wallet: accountId, amount: "10", memo: "Sandbox test" }] : []));
+  const maxPayees = sandbox ? sandbox.maxRows : 500;
   const [draft, setDraft] = useState<PayeeDraft>({ name: "", wallet: "", amount: "", memo: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -298,6 +309,15 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
       <section>
         <p className="text-[10px] font-mono uppercase tracking-widest text-[#0667DC] mb-1">{orgName}</p>
         <h1 className="mt-1 text-2xl font-bold tracking-tight uppercase font-mono">New payroll run</h1>
+        {sandbox && (
+          <div className="mt-3 space-y-1.5">
+            <SandboxBadge />
+            <p className="text-xs font-mono leading-5 text-[#322E25]/60">
+              Sandbox limits (UTC day): {sandbox.runsPerDay} runs, {sandbox.maxRows} rows and {sandbox.maxTotalUsdc.toLocaleString("en-US")} test USDC per run,{" "}
+              {sandbox.aiCallsPerDay} live AI mappings, {sandbox.relayedClaimsPerDay} gas-free claims.
+            </p>
+          </div>
+        )}
         <form onSubmit={upload} className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6 mt-4 space-y-4 font-mono">
           <div>
             <label className="label" htmlFor="run-name">Run name</label>
@@ -306,7 +326,15 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
           <div>
             <label className="label" htmlFor="run-file">Payroll CSV</label>
             <input id="run-file" className="field mt-1" type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-            <p className="mt-1.5 text-xs text-[#322E25]/60 leading-5">Any column names, any order. Up to 500 rows, 2 MB.</p>
+            <p className="mt-1.5 text-xs text-[#322E25]/60 leading-5">
+              Any column names, any order. {sandbox ? `Up to ${sandbox.maxRows} rows and ${sandbox.maxTotalUsdc.toLocaleString("en-US")} USDC in a sandbox.` : "Up to 500 rows, 2 MB."}
+            </p>
+            {sandbox && (
+              <p className="mt-1 text-xs leading-5">
+                <a className="underline text-[#0667DC]" href="/samples/payroll-sandbox.csv" download>Download the sample CSV</a>{" "}
+                <span className="text-[#322E25]/60">(messy on purpose: odd headers, a duplicate, an outlier, a euro amount, a bad address; fictional people).</span>
+              </p>
+            )}
           </div>
           <button className="btn w-full" disabled={!file || busy}>{busy ? "Reading the file…" : "Upload and check"}</button>
           <p className="text-xs text-[#322E25]/60 leading-5">
@@ -317,11 +345,16 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
           {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f]">{error}</p>}
         </form>
 
-        <details className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6 mt-4 font-mono">
+        <details className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6 mt-4 font-mono" open={sandbox ? true : undefined}>
           <summary className="cursor-pointer text-sm font-bold uppercase tracking-tight">Or add payees by hand</summary>
           <p className="mt-2 text-xs text-[#322E25]/60 leading-5">
             For a few contractors without a spreadsheet. The rows become a CSV and go through the same column mapping, rule checks and review as an upload.
           </p>
+          {sandbox && (
+            <p className="mt-2 border border-[#0667DC]/25 bg-[#e8f1fc] px-3 py-2 text-xs leading-5 text-[#0667DC]">
+              Add your MetaMask address as a second payee to try the EVM claim.
+            </p>
+          )}
           <form onSubmit={addPayee} className="mt-4 grid gap-3 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="payee-name">Name</label>
@@ -339,7 +372,7 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
               <label className="label" htmlFor="payee-memo">Memo</label>
               <input id="payee-memo" className="field mt-1" value={draft.memo} onChange={(e) => setDraft({ ...draft, memo: e.target.value })} placeholder="October invoice" maxLength={200} />
             </div>
-            <button className="btn-quiet sm:col-span-2" disabled={busy || draft.wallet.trim() === "" || draft.amount.trim() === "" || payees.length >= 500}>Add payee</button>
+            <button className="btn-quiet sm:col-span-2" disabled={busy || draft.wallet.trim() === "" || draft.amount.trim() === "" || payees.length >= maxPayees}>Add payee</button>
           </form>
           {payees.length > 0 && (
             <>

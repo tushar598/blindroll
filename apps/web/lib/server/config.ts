@@ -14,6 +14,10 @@ export interface ServerConfig {
   oneclickBaseUrl: string;
   /** Testnet only: the account that stands in for a 1Click deposit address. Null when not configured. */
   simSinkAccountId: string | null;
+  /** JUDGE_SANDBOX=1 (test networks only): a non-approver gets a private 1-of-1 sandbox org at sign-in. */
+  judgeSandbox: boolean;
+  /** Live AI mapping calls allowed per UTC day across all sandbox accounts (SANDBOX_AI_DAILY_CAP). */
+  sandboxAiDailyCap: number;
 }
 
 let cached: ServerConfig | undefined;
@@ -33,9 +37,11 @@ export function serverConfig(): ServerConfig {
     relayerAccountId: env.RELAYER_ACCOUNT_ID!,
     oneclickBaseUrl: env.ONECLICK_BASE_URL!,
     simSinkAccountId: env.SIM_SINK_ACCOUNT_ID?.trim() || null,
+    judgeSandbox: judgeSandboxEnabled(env),
+    sandboxAiDailyCap: sandboxAiDailyCap(env),
   };
-  // Refuses, for example, the mock USDC on mainnet.
-  assertNetworkConfig({ network: cfg.network, contractId: cfg.contractId, tokenId: cfg.tokenId, simSinkId: cfg.simSinkAccountId ?? undefined });
+  // Refuses, for example, the mock USDC on mainnet, and the judge sandbox on mainnet.
+  assertNetworkConfig({ network: cfg.network, contractId: cfg.contractId, tokenId: cfg.tokenId, simSinkId: cfg.simSinkAccountId ?? undefined, judgeSandbox: cfg.judgeSandbox });
   cached = cfg;
   return cfg;
 }
@@ -82,6 +88,52 @@ export function demoOrgRefundAccount(env: Record<string, string | undefined> = p
   if (!/^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/.test(account)) throw new Error("DEMO_ORG_REFUND_ACCOUNT is not a valid NEAR account ID");
   return account;
 }
+
+/**
+ * Judge sandbox (docs/02 Flow D). With JUDGE_SANDBOX=1 an account that is not a demo-org approver
+ * gets its own org at sign-in: it is the only approver (1 of 1) and the refund account. The limits
+ * protect what the hosted app pays for (the NEAR AI key and the relayer's NEAR); they apply to
+ * sandbox orgs only, never to the demo org.
+ */
+export const SANDBOX = {
+  orgPrefix: "sandbox:",
+  runsPerDay: 5,
+  maxRows: 10,
+  /** 1,000 USDC in base units (6 decimals). */
+  maxTotalBaseUnits: 1_000_000_000n,
+  aiCallsPerDay: 2,
+  defaultAiDailyCap: 40,
+  relayedClaimsPerDay: 5,
+  /** The relayer refuses sandbox claims below 1 NEAR, in yoctoNEAR. */
+  minRelayerYocto: 1_000_000_000_000_000_000_000_000n,
+  defaultClaimMinutes: 15,
+} as const;
+
+export const sandboxOrgId = (accountId: string) => `${SANDBOX.orgPrefix}${accountId}`;
+export const isSandboxOrg = (orgId: string) => orgId.startsWith(SANDBOX.orgPrefix);
+/** The one account that owns a sandbox org (the org ID carries it). */
+export const sandboxOwner = (orgId: string) => orgId.slice(SANDBOX.orgPrefix.length);
+
+export function judgeSandboxEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.JUDGE_SANDBOX?.trim() === "1";
+}
+
+export function sandboxAiDailyCap(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.SANDBOX_AI_DAILY_CAP?.trim();
+  if (!raw) return SANDBOX.defaultAiDailyCap;
+  if (!/^\d{1,6}$/.test(raw)) throw new Error("SANDBOX_AI_DAILY_CAP must be a whole number from 0 to 999999");
+  return Number(raw);
+}
+
+/** The sandbox limits as the UI shows them. */
+export const SANDBOX_LIMITS_PUBLIC = {
+  runsPerDay: SANDBOX.runsPerDay,
+  maxRows: SANDBOX.maxRows,
+  maxTotalUsdc: Number(SANDBOX.maxTotalBaseUnits / 1_000_000n),
+  aiCallsPerDay: SANDBOX.aiCallsPerDay,
+  relayedClaimsPerDay: SANDBOX.relayedClaimsPerDay,
+  defaultClaimMinutes: SANDBOX.defaultClaimMinutes,
+} as const;
 
 /**
  * Shortest and longest claim window. Minutes are offered on test networks only, so the

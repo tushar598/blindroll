@@ -61,3 +61,12 @@ describe("loadAndCheckEnv", () => {
     }
   });
 });
+
+describe("assertStartupEnv", () => {
+  it("refuses JUDGE_SANDBOX=1 with NEAR_NETWORK=mainnet, naming variables only", async () => {
+    const { assertStartupEnv } = await import("../src/env.ts");
+    expect(() => assertStartupEnv({ NEAR_NETWORK: "mainnet", JUDGE_SANDBOX: "1" })).toThrow("JUDGE_SANDBOX must not be 1 when NEAR_NETWORK is mainnet");
+    expect(() => assertStartupEnv({ NEAR_NETWORK: "testnet", JUDGE_SANDBOX: "1" })).not.toThrow();
+    expect(() => assertStartupEnv({ NEAR_NETWORK: "mainnet", JUDGE_SANDBOX: "" })).not.toThrow();
+  });
+});

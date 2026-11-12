@@ -49,6 +49,10 @@ export interface RunView {
   csvSha256: string;
   headers: string[];
   mappingSource: "ai" | "manual" | "fixed" | null;
+  /** cached | live | ai_off | ai_failed | ai_limit (a sandbox AI limit was reached) | fixed */
+  mappingNote: string | null;
+  /** Judge sandbox run (1 of 1, limits apply). */
+  sandbox: boolean;
   mapping: Mapping | null;
   aiLive: boolean;
   ai: { model: string; chatId: string; signatureVerified: boolean; attestationVerified: boolean } | null;

@@ -28,6 +28,7 @@ const config: ServerConfig = {
   network: "testnet", rpcUrl: "http://rpc.invalid", contractId: "blindroll.blindroll-dev.testnet", tokenId: "usdc.blindroll-dev.testnet",
   aiBaseUrl: "http://ai.invalid", aiModel: "m", aiLive: false, appUrl: "http://localhost:3000",
   relayerAccountId: "relayer.blindroll-dev.testnet", oneclickBaseUrl: "https://1click.invalid/v0", simSinkAccountId: null,
+  judgeSandbox: false, sandboxAiDailyCap: 40,
 };
 const csv = `wallet,amount,memo,name\n${EVM_ADDR},1000,October,Eve\n${NEAR_ACCT},250.5,Docs,Nia\n`;
 const dir = new URL("../../../packages/core/test-vectors/oneclick/", import.meta.url);

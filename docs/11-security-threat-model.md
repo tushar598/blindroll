@@ -19,6 +19,7 @@
 | T15 | Plaintext data breach (backend DB) | Salaries exposed | AES-256-GCM for identifying fields; minimal retention; documented as an MVP trust assumption |
 | T16 | Storage deposit drain via many new targets | NEAR balance drained | Reserve check in the contract; relayer rate limits |
 | T17 | Overfunding | Funds stuck | `ft_on_transfer` returns the excess |
+| T18 | Judge sandbox abuse (`JUDGE_SANDBOX=1`): anyone with a free testnet account becomes a 1-of-1 approver and can spend what the hosted app pays for (NEAR AI Cloud credits, the relayer's NEAR) or read other teams' runs | Credits or relayer NEAR drained; payroll data of other orgs exposed | Test networks only (the server refuses to start with it on mainnet). Per account per UTC day: 5 runs, 10 rows and 1,000 USDC per run, 2 live AI mappings, 5 relayed claims; a global cap on sandbox AI calls (`SANDBOX_AI_DAILY_CAP`, default 40); the AI cache by CSV hash; no sandbox relay below 1 NEAR on the relayer (refused before sending). Isolation is enforced server-side on every approver endpoint (org check per run), not by hiding things in the UI. Counters in SQLite, account IDs only. Residual risk: one person can create many testnet accounts; the global AI cap and the relayer floor bound the cost, and the switch can be turned off (sessions end on their next request) |
 
 ## Rules for builders
 

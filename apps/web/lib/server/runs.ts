@@ -26,9 +26,10 @@ import {
   validateMapping,
 } from "@blindroll/core";
 import { HttpError } from "./auth";
-import { CLAIM_WINDOW, DEFAULT_CLAIM_DAYS, MAX_RUN_ROWS, type ServerConfig } from "./config";
+import { CLAIM_WINDOW, DEFAULT_CLAIM_DAYS, MAX_RUN_ROWS, SANDBOX, type ServerConfig, isSandboxOrg, sandboxOwner } from "./config";
 import { decrypt, decryptJson, encrypt, encryptJson } from "./crypto";
 import { type Db, aiCalls, auditLog, orgApprovers, orgs, overrides, rowEdits, runRows, runs } from "./db";
+import { bumpUsage, globalUsageCount, sandboxRunsToday, usageCount } from "./sandbox";
 
 type RunRecord = typeof runs.$inferSelect;
 /** Evidence as stored: bytes become base64 so it survives JSON. */
@@ -90,9 +91,26 @@ function assertStatus(run: RunRecord, allowed: string[], what: string) {
   if (!allowed.includes(run.status)) throw new HttpError(409, "wrong_status", `${what} is not possible while the run is "${run.status}"`);
 }
 
+/** Sandbox runs: at most 1,000 USDC in total (docs/09 "Judge sandbox"). */
+function assertSandboxTotal(orgId: string, totalBaseUnits: bigint) {
+  if (isSandboxOrg(orgId) && totalBaseUnits > SANDBOX.maxTotalBaseUnits) {
+    throw new HttpError(400, "sandbox_total_limit", `A sandbox run can pay at most ${formatUsdc(SANDBOX.maxTotalBaseUnits)} USDC in total (this one: ${formatUsdc(totalBaseUnits)}). Lower the amounts or remove rows.`);
+  }
+}
+
+/**
+ * Whether a sandbox upload may make a live AI call: at most SANDBOX.aiCallsPerDay per account and
+ * SANDBOX_AI_DAILY_CAP over all sandbox accounts (UTC day). Real orgs are not limited.
+ */
+function sandboxAiAllowed(deps: RunDeps, orgId: string): boolean {
+  if (!isSandboxOrg(orgId)) return true;
+  return usageCount(deps.db, sandboxOwner(orgId), "ai") < SANDBOX.aiCallsPerDay && globalUsageCount(deps.db, "ai") < deps.config.sandboxAiDailyCap;
+}
+
 /**
  * Upload: parse, then get the column mapping. Order: cache by csv_sha256 → one live NEAR AI Cloud
- * call (only when NEAR_AI_LIVE=1) → otherwise the approver maps the columns by hand.
+ * call (only when NEAR_AI_LIVE=1, and for sandbox orgs only within the daily AI limits) →
+ * otherwise the approver maps the columns by hand.
  */
 export async function createRun(
   deps: RunDeps,
@@ -104,12 +122,19 @@ export async function createRun(
   if (!approvers.includes(input.accountId)) throw new HttpError(403, "forbidden", "You are not an approver of this organization");
   const name = input.name.trim();
   if (name.length < 1 || name.length > 100) throw new HttpError(400, "bad_request", "Run name must be 1 to 100 characters");
+  const sandbox = isSandboxOrg(input.orgId);
+  if (sandbox && sandboxRunsToday(db, input.orgId) >= SANDBOX.runsPerDay) {
+    throw new HttpError(429, "sandbox_run_limit", `A sandbox can start at most ${SANDBOX.runsPerDay} runs per day (UTC). Try again tomorrow.`);
+  }
   const csv = parseCsv(input.csvBytes);
   if (csv.rows.length > MAX_RUN_ROWS) throw new HttpError(400, "too_many_rows", `A run can have at most ${MAX_RUN_ROWS} rows`);
+  if (sandbox && csv.rows.length > SANDBOX.maxRows) {
+    throw new HttpError(400, "sandbox_row_limit", `A sandbox run can have at most ${SANDBOX.maxRows} rows (this file has ${csv.rows.length}).`);
+  }
 
   let mapping: ColumnMapping | null = null;
   let aiCallId: number | null = null;
-  let aiNote: "cached" | "live" | "ai_off" | "ai_failed" | "fixed";
+  let aiNote: "cached" | "live" | "ai_off" | "ai_failed" | "ai_limit" | "fixed";
   const cached = input.source === "payees" ? undefined : db.select().from(aiCalls).where(eq(aiCalls.csvSha256, csv.csvSha256)).get();
   if (input.source === "payees") {
     if (!isPayeeHeader(csv.headers)) throw new HttpError(400, "bad_request", "Hand-typed payees must use the fixed columns Name, Wallet, Amount (USDC), Memo");
@@ -120,7 +145,12 @@ export async function createRun(
     mapping = validateMapping(ev.mapping, csv.headers);
     aiCallId = cached.id;
     aiNote = "cached";
+  } else if (deps.ai && !sandboxAiAllowed(deps, input.orgId)) {
+    // Over a sandbox AI limit: no call; the approver maps the columns by hand.
+    aiNote = "ai_limit";
   } else if (deps.ai) {
+    // Counted before the call (an attempt costs credits even if it fails), with no await in between.
+    if (sandbox) bumpUsage(db, sandboxOwner(input.orgId), "ai");
     try {
       const r = await requestColumnMapping(csv, {
         baseUrl: config.aiBaseUrl,
@@ -170,6 +200,7 @@ export async function createRun(
       encCsv: encrypt(input.csvBytes),
       encMapping: mapping ? encryptJson(mapping) : null,
       mappingSource: aiNote === "fixed" ? "fixed" : mapping ? "ai" : null,
+      mappingNote: aiNote,
       aiCallId,
       createdBy: input.accountId,
       createdAt: nowIso(),
@@ -232,6 +263,10 @@ export function getRun(deps: RunDeps, input: { accountId: string; runKey: string
     csvSha256: run.csvSha256,
     headers: runCsv(run).headers,
     mappingSource: run.mappingSource,
+    /** How the upload got its mapping; "ai_limit" = a sandbox AI limit was reached, so no call was made. */
+    mappingNote: run.mappingNote,
+    /** Judge sandbox run: 1-of-1, limits apply (docs/09). */
+    sandbox: isSandboxOrg(run.orgId),
     mapping: cur?.mapping ?? null,
     aiLive: deps.ai !== undefined,
     ai: ai ? { model: ai.model, chatId: ai.chatId, signatureVerified: ai.verified, attestationVerified: false } : null,
@@ -302,10 +337,12 @@ export function finalize(deps: RunDeps, input: { accountId: string; runKey: stri
   const run = loadRun(db, input.runKey, input.accountId);
   assertStatus(run, ["review"], "Finalizing");
   let windowMs: number;
-  if (input.claimMinutes !== undefined) {
+  // Sandbox runs default to a short window, so the judge can also try Reclaim the same day.
+  const claimMinutes = input.claimMinutes ?? (input.claimDays === undefined && isSandboxOrg(run.orgId) && config.network !== "mainnet" ? SANDBOX.defaultClaimMinutes : undefined);
+  if (claimMinutes !== undefined) {
     // A window in minutes exists only to try the reclaim step on a test network.
     if (config.network === "mainnet") throw new HttpError(400, "bad_request", "A claim window in minutes is only available on test networks");
-    const m = input.claimMinutes;
+    const m = claimMinutes;
     if (!Number.isInteger(m) || m < CLAIM_WINDOW.minMinutes || m > CLAIM_WINDOW.maxMinutes) throw new HttpError(400, "bad_request", `The claim window must be ${CLAIM_WINDOW.minMinutes} to ${CLAIM_WINDOW.maxMinutes} minutes`);
     windowMs = m * 60 * 1000;
   } else {
@@ -315,6 +352,7 @@ export function finalize(deps: RunDeps, input: { accountId: string; runKey: stri
   }
   const cur = currentReview(db, run)!;
   const { org, approvers } = orgPolicy(db, run.orgId);
+  assertSandboxTotal(run.orgId, cur.review.rows.reduce((sum, r) => sum + (r.amount ?? 0n), 0n));
 
   const salts = new Map(cur.review.rows.map((r) => [r.rowNumber, randomSaltHex()]));
   const fin = finalizeRun({ runKey: run.runKey, review: cur.review, salts }); // throws while errors or open warnings remain
@@ -385,6 +423,7 @@ export function getCreateArgs(deps: RunDeps, input: { accountId: string; runKey:
   if (!run.reportJson || run.claimDeadlineMs === null) throw new HttpError(409, "not_finalized", "Finalize the run first");
   const { org } = orgPolicy(deps.db, run.orgId);
   const report = JSON.parse(run.reportJson) as AttestedReport;
+  assertSandboxTotal(run.orgId, BigInt(report.normalized.total_amount));
   const args = buildCreateRunArgs({ report, claimDeadlineMs: run.claimDeadlineMs, refundAccount: org.refundAccount });
   if (args.report_hash_hex !== run.reportSha256) throw new HttpError(500, "report_mismatch", "The stored report does not match its hash");
   return { contractId: run.contractId, args, depositYocto: (RUN_STORAGE_YOCTO + PER_RECIPIENT_YOCTO * BigInt(args.recipient_count)).toString() };

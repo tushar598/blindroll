@@ -42,6 +42,7 @@ const config: ServerConfig = {
   network: "testnet", rpcUrl: "http://rpc.invalid", contractId: "blindroll.blindroll-dev.testnet", tokenId: "usdc.blindroll-dev.testnet",
   aiBaseUrl: fixture.base_url, aiModel: fixture.model, aiLive: true, appUrl: "http://localhost:3000",
   relayerAccountId: "relayer.blindroll-dev.testnet", oneclickBaseUrl: "https://1click.invalid/v0", simSinkAccountId: null,
+  judgeSandbox: false, sandboxAiDailyCap: 40,
 };
 const APPROVER = "tushar1962005.testnet";
 

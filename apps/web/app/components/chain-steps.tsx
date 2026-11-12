@@ -189,7 +189,7 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
         )}
       </Step>
 
-      <Step title={`Approve (${approvals.length} of ${threshold} needed)`} state={!chain ? "later" : status === "draft" ? "now" : "done"}>
+      <Step title={`Approve (${threshold} of ${approverList.length} needed · ${approvals.length} approved)`} state={!chain ? "later" : status === "draft" ? "now" : "done"}>
         <ul className="space-y-1.5 text-sm">
           {approverList.map((a) => (
             <li key={a} className="flex items-center gap-2">

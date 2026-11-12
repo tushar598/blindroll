@@ -6,7 +6,7 @@ import { db } from "./db";
 import type { RunDeps } from "./runs";
 import type { ClaimDeps } from "./claims";
 import { relay, simSinkSender } from "./relayer";
-import { accountExists, isFullAccessKey, viewFunction } from "./rpc";
+import { accountBalanceYocto, accountExists, isFullAccessKey, viewFunction } from "./rpc";
 import { SESSION_COOKIE, type ViewScope, readSessionToken, readViewToken } from "./session";
 
 const liveFetch: FetchLike = (url, init) => fetch(url, { ...init, cache: "no-store" });
@@ -21,7 +21,7 @@ export function runDeps(): RunDeps {
 export async function requireApprover(req: NextRequest): Promise<string> {
   const accountId = await readSessionToken(req.cookies.get(SESSION_COOKIE)?.value);
   if (!accountId) throw new HttpError(401, "unauthenticated", "Sign in with your NEAR wallet first");
-  if (approverOrgIds(db(), accountId).length === 0) throw new HttpError(403, "not_approver", "This account is not an approver");
+  if (approverOrgIds(db(), accountId, serverConfig().judgeSandbox).length === 0) throw new HttpError(403, "not_approver", "This account is not an approver");
   return accountId;
 }
 
@@ -74,6 +74,7 @@ export function claimDeps(): ClaimDeps {
     view: viewFunction,
     accountExists,
     isFullAccessKey,
+    accountBalanceYocto,
     relay,
     ...(simSend && config.simSinkAccountId ? { simSink: { accountId: config.simSinkAccountId, send: simSend } } : {}),
     ...(jwt ? { oneclick: { baseUrl: config.oneclickBaseUrl, jwt, fetch: (url, init) => fetch(url, { ...init, cache: "no-store" }) } } : {}),

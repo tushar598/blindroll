@@ -110,7 +110,9 @@ function ManualMappingForm({ run, onSaved, onCancel }: { run: RunView; onSaved: 
       <p className="text-sm font-mono text-[#322E25]/70 leading-6">
         {initial
           ? "Changing the mapping replaces the AI mapping and clears edits and overrides made so far."
-          : run.aiLive
+          : run.mappingNote === "ai_limit"
+            ? "AI limit reached for today; map the columns by hand."
+            : run.aiLive
             ? "The AI mapping did not return a usable answer. Pick the column for each field."
             : "Live AI mapping is off, and this file has not been mapped before. Pick the column for each field."}
       </p>

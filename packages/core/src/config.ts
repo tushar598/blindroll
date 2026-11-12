@@ -14,9 +14,14 @@ export function isTestNetworkAccount(accountId: string): boolean {
  * Guards against pointing a mainnet deployment at test accounts, in particular the open-mint
  * mock USDC. Call it once at startup and in every deploy script.
  */
-export function assertNetworkConfig(cfg: { network: string; contractId: string; tokenId: string; simSinkId?: string }): void {
+export function assertNetworkConfig(cfg: { network: string; contractId: string; tokenId: string; simSinkId?: string; judgeSandbox?: boolean }): void {
   if (!(NETWORKS as readonly string[]).includes(cfg.network)) {
     throw new ValidationError("NEAR_NETWORK must be testnet, mainnet or sandbox");
+  }
+  // The judge sandbox lets any account become a 1-of-1 approver of its own org. That is a demo
+  // device for test networks; on mainnet it would let strangers spend the relayer and the AI key.
+  if (cfg.judgeSandbox === true && cfg.network === "mainnet") {
+    throw new ValidationError("JUDGE_SANDBOX must not be 1 when NEAR_NETWORK is mainnet");
   }
   if (!isNearAccountId(cfg.contractId)) throw new ValidationError("BLINDROLL_CONTRACT_ID is not a valid NEAR account ID");
   if (!isNearAccountId(cfg.tokenId)) throw new ValidationError("USDC_TOKEN_ID is not a valid NEAR account ID");

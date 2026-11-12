@@ -16,11 +16,12 @@ import {
   isNearAccountId,
 } from "@blindroll/core";
 import { HttpError, consumeNonce, issueNonce } from "./auth";
-import { ONECLICK_DESTINATIONS, ONECLICK_DRY_REFUND_STAND_IN, type ServerConfig } from "./config";
+import { ONECLICK_DESTINATIONS, ONECLICK_DRY_REFUND_STAND_IN, SANDBOX, type ServerConfig, isSandboxOrg, sandboxOwner } from "./config";
 import { decryptJson } from "./crypto";
 import { type Db, auditLog, claims, orgApprovers, orgs, runRows, runs } from "./db";
 import { normalizeEd25519PublicKey, verifyNep413Any } from "./nep413";
 import type { RelayFn } from "./relayer";
+import { bumpUsage, usageCount } from "./sandbox";
 import { type ViewScope, createViewToken } from "./session";
 
 export const VIEW_RECIPIENT = "blindroll";
@@ -35,6 +36,8 @@ export interface ClaimDeps {
   view: (contractId: string, method: string, args: object) => Promise<unknown>;
   accountExists: (accountId: string) => Promise<boolean>;
   isFullAccessKey: (accountId: string, publicKey: string) => Promise<boolean>;
+  /** The relayer's NEAR balance in yoctoNEAR; checked before relaying a sandbox claim. */
+  accountBalanceYocto?: (accountId: string) => Promise<bigint>;
   relay: RelayFn;
   /** Absent when 1Click is not configured; the board then shows only USDC on NEAR. */
   oneclick?: OneClickConfig;
@@ -416,10 +419,18 @@ export async function submitClaim(deps: ClaimDeps, scope: ViewScope, input: { cl
     };
   }
   await assertClaimable(deps, run, row);
+  const sandbox = isSandboxOrg(run.orgId);
+  if (sandbox) await assertRelayerFunded(deps);
+  // Sandbox: the daily cap is checked and counted with no await in between, so two clicks cannot both pass.
+  if (sandbox && usageCount(db, sandboxOwner(run.orgId), "relay") >= SANDBOX.relayedClaimsPerDay) {
+    throw new HttpError(429, "sandbox_relay_limit", `This sandbox has used its ${SANDBOX.relayedClaimsPerDay} gas-free claims for today (UTC). Try again tomorrow.`);
+  }
 
   // Take the claim atomically so a double click cannot submit twice.
   const taken = db.update(claims).set({ status: "submitted", updatedAt: nowIso() }).where(and(eq(claims.id, claim.id), eq(claims.status, "prepared"))).returning({ id: claims.id }).get();
   if (!taken) throw new HttpError(409, "already_submitted", "This claim was already submitted");
+  // Counted per sandbox owner (the judge), whoever the recipient is: the relayer pays the gas either way.
+  if (sandbox) bumpUsage(db, sandboxOwner(run.orgId), "relay");
 
   let txHash: string | null = null;
   let error: string | null = null;
@@ -445,6 +456,23 @@ export async function submitClaim(deps: ClaimDeps, scope: ViewScope, input: { cl
   audit(db, `relayer:${deps.config.relayerAccountId}`, claimed ? "claim_submitted" : "claim_failed", run.id, { claim_id: claim.id, tx: txHash });
   if (!claimed) throw new HttpError(502, "claim_failed", `The claim transaction did not go through${error ? `: ${error}` : ""}`);
   return { status, txHash, simulated: claim.simulated };
+}
+
+/**
+ * Sandbox runs only: refuse before sending anything when the relayer holds less than 1 NEAR, so a
+ * claim never fails halfway for lack of gas money (docs/11).
+ */
+async function assertRelayerFunded(deps: ClaimDeps) {
+  if (!deps.accountBalanceYocto) throw new HttpError(503, "relayer_unchecked", "The relayer balance cannot be checked right now; try again later");
+  let balance: bigint;
+  try {
+    balance = await deps.accountBalanceYocto(deps.config.relayerAccountId);
+  } catch {
+    throw new HttpError(503, "relayer_unchecked", "The relayer balance cannot be checked right now; try again later");
+  }
+  if (balance < SANDBOX.minRelayerYocto) {
+    throw new HttpError(503, "relayer_low_balance", "Gas-free claims are paused: the relayer account is low on NEAR. Nothing was sent; your payout is still claimable. Try again later, or tell the Blindroll team.");
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

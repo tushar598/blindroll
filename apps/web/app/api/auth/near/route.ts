@@ -15,7 +15,7 @@ export const POST = handle(async (req) => {
   }
   // callbackUrl: only wallets that were given one include it in the signed payload.
   const callbackUrl = acceptedCallbackUrl(b.callbackUrl, serverConfig().appUrl);
-  const account = await verifySignIn(db(), { accountId, publicKey, signature, nonce, ...(callbackUrl ? { callbackUrl } : {}) }, isFullAccessKey);
+  const account = await verifySignIn(db(), { accountId, publicKey, signature, nonce, ...(callbackUrl ? { callbackUrl } : {}) }, isFullAccessKey, { judgeSandbox: serverConfig().judgeSandbox });
   const res = NextResponse.json({ accountId: account });
   res.cookies.set(SESSION_COOKIE, await createSessionToken(account), {
     httpOnly: true,

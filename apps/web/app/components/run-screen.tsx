@@ -6,7 +6,7 @@ import { api, errorMessage } from "@/lib/client/api";
 import type { RunView } from "@/lib/client/types";
 import { ChainSteps } from "./chain-steps";
 import { MappingPanel } from "./mapping-panel";
-import { TrustNotice } from "./notices";
+import { SandboxBadge, TrustNotice } from "./notices";
 import { PayoutsPanel } from "./payouts-panel";
 import { ReviewPanel } from "./review-panel";
 import { useSession } from "./session";
@@ -56,6 +56,7 @@ export function RunScreen() {
         <p className="text-xs font-mono text-[#322E25]/60 mt-1">
           {run.runKey} · {run.org.name} · {run.org.threshold} of {run.org.approvers.length} approvers
         </p>
+        {run.sandbox && <div className="mt-2"><SandboxBadge /></div>}
       </div>
       <TrustNotice />
       {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{error}</p>}

@@ -60,6 +60,12 @@ export async function accountExists(accountId: string): Promise<boolean> {
   }
 }
 
+/** The account's NEAR balance in yoctoNEAR (used to stop relaying before the relayer runs dry). */
+export async function accountBalanceYocto(accountId: string): Promise<bigint> {
+  const r = await rpc<{ amount: string }>("query", { request_type: "view_account", finality: "final", account_id: accountId });
+  return BigInt(r.amount);
+}
+
 /** Current nonce of an access key and a recent block hash, for building a transaction. */
 export async function accessKeyNonce(accountId: string, publicKey: string): Promise<{ nonce: bigint; blockHash: string }> {
   const r = await rpc<{ nonce: number | string; block_hash: string }>("query", {

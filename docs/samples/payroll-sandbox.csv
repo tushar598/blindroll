@@ -1,0 +1,11 @@
+Contributor,E-mail,Wallet Addr,Amt (USD),currency,Role,Notes
+Asha Rao,asha@example.org,0x8ba1f109551bd432803012645ac136ddd64dba72,$60.50,USD,Frontend,October sprint
+Ben Okafor,ben@example.org,ben-okafor.testnet,40,usdc,Docs,
+Chen Wei,chen@example.org,0x71c7656ec7ab88b098defb751b7401b5f6d8976f,47.50,USDC,Smart contracts,
+,,,,,,
+Dana Silva,dana@example.org,0x2546bcd3c84621e976d8185a91a922ae77ecec30,$55.00,usd,Design,
+Asha Rao,asha@example.org,0x8ba1f109551bd432803012645ac136ddd64dba72,$60.50,USD,Frontend,duplicate row by mistake
+Elif Kaya,elif@example.org,0xbda5747bfd65f08deb54cb465eb87d40e51b197e,475,USDC,Community,check this amount
+Farid Haddad,farid@example.org,0xdd2fd4581271e230360230f9337d5c0430bf44c0,35,EUR,Research,paid in euros?
+Grace Lim,grace@example.org,0x123,30,USDC,Moderation,address looks wrong
+Hiro Tanaka,hiro@example.org,hiro.testnet,$52.50,USD,Backend,

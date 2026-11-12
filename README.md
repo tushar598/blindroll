@@ -11,6 +11,24 @@
 5. **Claim-based self-verification.** No public salary table: each recipient connects a wallet, signs a message, sees only their own row and claims it with a Merkle proof.
 6. **Gas-free claims via a relayer.** EVM recipients sign a message; NEAR recipients press one button. The relayer pays the gas and cannot redirect the payout.
 
+## Try it in 5 minutes (judges)
+
+Everything runs on NEAR **testnet** with your own wallet: nobody shares keys, and the money is a test token with no value.
+
+1. Open **https://blindroll-production.up.railway.app**
+2. Create a free **testnet** account in [Meteor](https://wallet.meteorwallet.app) or [Intear](https://wallet.intear.tech): a named account such as `yourname.testnet` (the 64-character implicit account is refused). If it shows 0 NEAR, get testnet NEAR from the [NEAR faucet](https://docs.near.org/getting-started/faucet) or [near-faucet.io](https://near-faucet.io). **About 0.5 NEAR is plenty.** `create_run` attaches 0.05 NEAR plus 0.00225 NEAR per recipient and refunds what storage does not use (roughly 0.01 NEAR is kept for a two-recipient run); create, approve, "Get test USDC", fund and reclaim each burn well under 0.01 NEAR of gas. Claiming costs the recipient nothing.
+3. **Sign in with NEAR** → you get a private sandbox: you are its only approver (1 of 1). Real teams use two or more (the demo org is 2-of-2).
+4. Start a run, either way:
+   - **Sample CSV:** on the upload screen, "Download the sample CSV" ([`docs/samples/payroll-sandbox.csv`](docs/samples/payroll-sandbox.csv)) and upload it → see the AI column mapping and the rule flags (duplicate, outlier, euro amount, bad address) → remove the bad rows, accept the outlier with a reason → **Finalize**. Its people are fictional, so nobody can claim from it; use it to see the AI and the rules (and the verify page in step 7).
+   - **Payees by hand** (to try a claim): "Or add payees by hand" already lists your own account with 10 USDC. Add your MetaMask address as a second payee if you want to try the EVM claim → **Check** → **Finalize**.
+
+   The claim window defaults to 15 minutes in a sandbox, so you can also try **Reclaim** afterwards.
+5. **Create run → Approve → Get test USDC → Fund**: four transactions from your wallet.
+6. Open the claim link → **Continue as this account** (your NEAR account, same browser) → **Claim (gas-free)** → "Claimed" and a link to the transaction on NEARBlocks. Optional: open the link again with MetaMask and sign the claim message; the relayer pays the gas. Cross-chain delivery is simulated on testnet (labelled on the page).
+7. Open **Verify the report and export** on the run page: the report hash against the contract, the AI response signature and each attestation check, one by one.
+
+**Sandbox limits** (per account, per UTC day): 5 runs; 10 rows and 1,000 test USDC per run; 2 live AI mappings (and 40 across all sandboxes; over a limit you map the columns by hand; a file mapped before is reused for free); 5 gas-free claims. Sandbox runs are testnet-only, use the test token, and are isolated per account: you see only your own runs and nobody else sees yours. The full [`payroll-messy.csv`](docs/samples/payroll-messy.csv) totals 14,600.50 USDC, over the sandbox cap: it maps and shows the same flags, but Finalize is refused.
+
 ## How a company uses this
 
 - A remote team or a group of contractors is paid once a month.
@@ -69,15 +87,6 @@
 
 After everyone claims, an observer can reconstruct most amounts and addresses from the chain. What stays off the public chain: identities, memos, and rows not yet claimed. Why rows are not encrypted to each recipient's wallet, and what would change that: [docs/08](docs/08-privacy-model.md#why-not-client-side-decryption-yet).
 
----|---|
-| Full payroll table, unclaimed rows | **No** — never published |
-| Names, emails, roles, memos | **No** — off-chain only |
-| AI prompts and responses | **No** — only their hashes and the response signature are in the report |
-| Run metadata (approvers, deadline, total, Merkle root, report hash) | **Yes** |
-| A claimed row's address and amount | **Yes, once claimed** |
-
-The backend stores the table encrypted at rest (AES-256-GCM) and serves each recipient only their own row after a valid wallet signature. After everyone claims, an observer can reconstruct amounts and addresses from the chain — what stays hidden is everything unclaimed: identities, memos, and rows not yet claimed.
-
 ---
 
 ## Testnet deployment
@@ -111,6 +120,7 @@ Left out, with reasons (no testnet, no message signing, or a relay service that 
 |---|---|
 | NEAR contract: Merkle proofs, EVM signature recovery, approvals, payouts, reopen, reclaim | **Real** (testnet) |
 | Approver flow: sign in, create, approve, fund, cancel, reclaim | **Real** testnet transactions from the browser wallet |
+| Judge sandbox (`JUDGE_SANDBOX=1`): any testnet account gets a private 1-of-1 org | **Real** testnet transactions; a demo device with lower limits, refused on mainnet |
 | AI column mapping | **Real** NEAR AI Cloud call (one per new CSV, cached by its hash) |
 | USDC claims via relayer (EVM message signature; NEAR gas-free button) | **Real** testnet transactions |
 | USDC | **Mock** (`mUSDC`, open mint, no value; mainnet uses native USDC) |
@@ -128,17 +138,6 @@ Left out, with reasons (no testnet, no message signing, or a relay service that 
 | Confidential payout rail (Confidential Intents) | **Not built** (roadmap; see Future work) |
 
 Details of every attestation check: [docs/05](docs/05-ai-pipeline-and-attestation.md#attestation-checks-2026-11-12).
-
----|---|
-| NEAR contract — Merkle proofs, EVM signature recovery, approvals, payouts, reopen | **Real** (testnet) |
-| Approver flow — sign in, create, approve, fund | **Real** testnet transactions |
-| AI column mapping | **Real** NEAR AI Cloud call; response signature verified at finalize and on the verify page |
-| USDC claims via relayer (EVM + NEAR wallets) | **Real** testnet transactions |
-| USDC | **Mock** (`mUSDC`, open mint, no value; mainnet uses native USDC) |
-| Cross-chain payout estimates | **Real** 1Click dry quotes (mainnet prices, labelled "estimated") |
-| Cross-chain delivery on testnet | **Simulated** — 1Click has no testnet; funds go to a holding account, nothing arrives on the destination chain |
-| Failed delivery → refund → reopen | Failure **simulated** by approver button; refund and `reopen_claim` are **real** on-chain transactions |
-| TEE attestation | Stored, **not verified** (Intel TDX quote verification not implemented; report says `verified: false`) |
 
 ---
 
@@ -161,7 +160,31 @@ pnpm -r typecheck
 cd contracts && cargo test   # Rust unit tests + sandbox integration test
 ```
 
-Use [`docs/samples/payroll-messy.csv`](docs/samples/payroll-messy.csv) as the sample upload. Set `NEAR_AI_LIVE=1` to make a real AI call (cached by CSV hash after the first).
+Use [`docs/samples/payroll-messy.csv`](docs/samples/payroll-messy.csv) as the sample upload. Set `NEAR_AI_LIVE=1` to make a real AI call (cached by CSV hash after the first). Set `JUDGE_SANDBOX=1` (test networks only) to let any account sign in to its own 1-of-1 sandbox.
+
+### For automated reviewers
+
+These need no secrets, no env file and no live AI call:
+
+| Command | What it proves |
+|---|---|
+| `pnpm install` | The lockfile resolves (`--frozen-lockfile` on the host) |
+| `pnpm -r typecheck` | `packages/core` and `apps/web` type-check under `strict` |
+| `pnpm -r test` | core: Merkle leaves, proofs and claim messages against the shared test vectors, CSV parsing and rules, the recorded NEAR AI response and its signature, the attestation checks, the report. web: NEP-413 sign-in, the run flow with the recorded AI fixture, claims with real EVM/NEAR signatures against stubbed RPC and relayer, export, and the judge sandbox (isolation and every limit). No network |
+| `cd contracts && cargo test` | Contract unit tests (proofs, EVM signature recovery, approvals, funding, payouts, reopen, reclaim, pause) and the sandbox integration test (the wasm on a local `near-sandbox` with the mock token). Needs Rust, the `wasm32-unknown-unknown` target and `cargo-near`; the first run downloads the sandbox binary |
+
+`pnpm build` and `pnpm --filter web dev` need the 16 variables of `.env.example` (they refuse to start without them).
+
+### Demo script for judges (2 minutes)
+
+1. Landing page → **Sign in with NEAR** (any testnet account; a sandbox is created).
+2. Upload `payroll-sandbox.csv` → the AI mapping card (model, signature verified) → four rule flags → remove three rows, accept the outlier → Finalize.
+3. A second run from "Or add payees by hand" (you + MetaMask) → Finalize → Create → Approve → Get test USDC → Fund.
+4. Claim link → Continue as this account → Claim (gas-free) → NEARBlocks; then MetaMask → sign → claimed by the relayer.
+5. Verify page: report hash = contract, Merkle root, AI checks a–h with g and h marked "not verified".
+6. After 15 minutes: **Reclaim unclaimed funds** on the run page.
+
+The longer script with expected results is in [docs/13](docs/13-testing-and-demo.md#demo-script-2-minutes).
 
 ---
 
@@ -186,7 +209,7 @@ docs/              Full specs (product, architecture, contract, AI, privacy, API
 - **Gas-free NEAR claims pay your own account only.** A different NEAR destination requires sending `claim_near` from your own wallet.
 - **Two NEAR wallets.** Meteor and Intear are tested; Sender, Nightly and MyNearWallet were removed after browser tests (see Supported wallets).
 - **Cross-chain delivery not real on testnet.** The mainnet 1Click execution path is not built.
-- **No org management UI.** Approvers are set via environment config.
+- **No org management UI.** Approvers are set via environment config. The judge sandbox creates one 1-of-1 org per account, for demos on testnet only.
 
 ## Future work
 

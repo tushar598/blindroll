@@ -38,6 +38,8 @@ export const runs = sqliteTable("runs", {
   encMapping: text("enc_mapping"),
   /** ai | manual | fixed (hand-typed payees, fixed columns, no AI call) */
   mappingSource: text("mapping_source"),
+  /** How the upload got (or did not get) its mapping: cached | live | ai_off | ai_failed | ai_limit | fixed. */
+  mappingNote: text("mapping_note"),
   aiCallId: integer("ai_call_id"),
   tableSha256: text("table_sha256"),
   merkleRoot: text("merkle_root"),
@@ -158,6 +160,16 @@ export const nonces = sqliteTable("nonces", {
   used: integer("used", { mode: "boolean" }).notNull(),
 });
 
+/**
+ * Judge sandbox counters (docs/09): one row per sandbox account, UTC day and kind
+ * ("ai" = live mapping calls, "relay" = claims the relayer paid for). Account IDs only.
+ */
+export const sandboxUsage = sqliteTable(
+  "sandbox_usage",
+  { accountId: text("account_id").notNull(), day: text("day").notNull(), kind: text("kind").notNull(), count: integer("count").notNull() },
+  (t) => [uniqueIndex("sandbox_usage_unique").on(t.accountId, t.day, t.kind)],
+);
+
 const DDL = `
 CREATE TABLE IF NOT EXISTS orgs (id TEXT PRIMARY KEY, name TEXT NOT NULL, threshold INTEGER NOT NULL, refund_account TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS org_approvers (org_id TEXT NOT NULL, account_id TEXT NOT NULL, position INTEGER NOT NULL);
@@ -184,6 +196,8 @@ CREATE TABLE IF NOT EXISTS claims (
 CREATE INDEX IF NOT EXISTS claims_row ON claims (row_id);
 CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL, run_id INTEGER, data_json TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS nonces (nonce TEXT PRIMARY KEY, purpose TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sandbox_usage (account_id TEXT NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, count INTEGER NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS sandbox_usage_unique ON sandbox_usage (account_id, day, kind);
 `;
 
 export type Db = ReturnType<typeof openDb>;
@@ -200,6 +214,7 @@ export function openDb(file: string) {
     if (!cols.some((c) => c.name === column)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   };
   for (const c of ["payout_status", "quote_json", "refund_tx", "reopen_tx"]) addColumn("claims", c, "TEXT");
+  addColumn("runs", "mapping_note", "TEXT");
   const now = new Date().toISOString();
   sqlite.prepare("INSERT OR IGNORE INTO orgs (id, name, threshold, refund_account, created_at) VALUES (?, ?, ?, ?, ?)").run(
     DEMO_ORG.id, DEMO_ORG.name, DEMO_ORG.threshold, demoOrgRefundAccount(), now,
