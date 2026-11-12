@@ -25,10 +25,10 @@ Sources: each Wallet Selector 10.1.4 module's published code (read, not run) and
 | Wallet | Kind | Testnet | signMessage (NEP-413) | signAndSendTransaction(s) | In Blindroll | Why |
 |---|---|---|---|---|---|---|
 | Meteor | Extension / web | ✅ | ✅ | ✅ | **On, Tested** | Owner's full browser test passed |
-| Intear | Web wallet (popup) | ✅ (manifest; module passes the network) | ✅ | ✅ | **On, Untested** | Uses Intear's own logout bridge (its wallet service) |
-| Sender | Extension | ✅ when the extension is set to testnet (module checks the network matches; to be confirmed in a browser) | ✅ | ✅ | **On, Untested** | |
-| Nightly | Extension | ✅ (manifest; network chosen in the extension) | ✅ | ✅ | **On, Untested** | Needs the extension installed; otherwise it reports "not injected" |
-| MyNearWallet | Web wallet | ✅ (`testnet.mynearwallet.com`) | ✅, **signs the `callbackUrl`** | ✅ | **On, Untested** | 10.1.4 opens a **popup** and returns by `postMessage`, so the page and the pending action stay; no return-trip handling needed. Its login adds a function-call key for the contract; zero-deposit calls to the contract are then signed with that key, others go through the popup |
+| Intear | Web wallet (popup) | ✅ (manifest; module passes the network) | ✅ | ✅ | **On, Tested (2026-11-12)** | Uses Intear's own logout bridge (its wallet service). Opens a second popup to sign; when the browser blocks it, sign-in shows a "Sign message" button |
+| Sender | Extension | ✅ when the extension is set to testnet (module checks the network matches) | ✅ | ✅ | **Removed (tested 2026-11-12)** | Importing the testnet approver failed inside Sender (its server returned an HTML page instead of JSON) |
+| Nightly | Extension | ✅ (manifest; network chosen in the extension) | ✅ | ✅ | **Removed (tested 2026-11-12)** | Importing a named testnet account by private key connects the implicit (hex) account instead, so sign-in fails: that account holds no key and is not an approver |
+| MyNearWallet | Web wallet | ✅ (`testnet.mynearwallet.com`) | ✅, **signs the `callbackUrl`** | ✅ | **Removed (tested 2026-11-12)** | Did not work reliably in the owner's browser test. Notes kept for a later retry: 10.1.4 opens a **popup** and returns by `postMessage`, so the page and the pending action stay; no return-trip handling needed. Its login adds a function-call key for the contract; zero-deposit calls to the contract are then signed with that key, others go through the popup |
 | HOT | Extension / Telegram / mobile | ❌ (the module never passes a network; no testnet flag in the manifest) | ✅ | ✅ | Left out | No testnet path; without the extension, requests are relayed through HOT's servers (`h4n.app`, Telegram app) — a new external service |
 | HERE | Mobile (QR / relay) | To be confirmed | ✅ | ✅ | Left out | `@here-wallet/core` relays requests through HERE's servers — a new external service |
 | OKX | Extension | ❌ / to be confirmed (module passes no network; no testnet flag in the manifest) | ✅ | ✅ | Left out | No confirmed testnet |
@@ -41,13 +41,13 @@ Sources: each Wallet Selector 10.1.4 module's published code (read, not run) and
 - All five "On" wallets are offered by default. Optional env `NEAR_WALLETS` (comma-separated IDs) only narrows the list; Meteor is always kept and is the default choice.
 - The picker shows each wallet's icon (inline data URIs from the modules; nothing is fetched) and a **Tested** / **Untested** badge. The choice is remembered per browser.
 - A module that fails to load or set up is skipped; it cannot break the others.
-- If a wallet cannot sign messages, sign-in and the claim page's view step say: "This wallet can't sign messages, which sign-in and viewing your payout need; use Meteor, Intear or Nightly for this step." (All five offered wallets can.) Transactions do not need a message signature.
+- If a wallet cannot sign messages, sign-in and the claim page's view step say: "This wallet can't sign messages, which sign-in and viewing your payout need; use Meteor or Intear for this step." (Both offered wallets can.) Transactions do not need a message signature.
 - The "connected as the expected signer, else Switch account" check (`ensureWalletAccount`) runs for every wallet before each transaction.
 
 **Server-side NEP-413 verification** (`apps/web/lib/server/nep413.ts`), shared by sign-in and the view step:
 - Signature: base64 (the NEP-413 form), base64url, 128 hex characters or `ed25519:<base58>`; must be 64 bytes.
 - Public key: `ed25519:<base58>` or bare base58; normalized to `ed25519:<base58>` before the full-access-key RPC check.
-- `callbackUrl` is part of the signed payload. The client sends the one it gave the wallet (MyNearWallet only); the server accepts it only on `APP_URL`'s origin and tries the payload without it first, then with it.
+- `callbackUrl` is part of the signed payload. The client sends the one it gave the wallet (no offered wallet signs one today; kept for NEP-413 wallets that do); the server accepts it only on `APP_URL`'s origin and tries the payload without it first, then with it.
 - Nonce: unchanged (the server's one-time 32-byte nonce, decoded from base64).
 - Tests: synthetic signatures for every format and for the callbackUrl case (`apps/web/test/server.test.ts`). **No recorded signatures from the untested wallets**: they can only be obtained in a real browser with each wallet.
 

@@ -1,7 +1,7 @@
 "use client";
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
-import { configureWallets, connectWallet, disconnectWallet, signInMessage } from "@/lib/client/wallet";
+import { configureWallets, connectWallet, disconnectWallet, isPopupBlockedError, signInMessage } from "@/lib/client/wallet";
 
 export interface Me {
   accountId: string | null;
@@ -26,6 +26,9 @@ interface SessionValue {
   busy: boolean;
   error: string | null;
   signIn: () => Promise<void>;
+  /** Set when the wallet connected but its signing popup was blocked: one more click finishes sign-in. */
+  pendingSignIn: string | null;
+  continueSignIn: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -42,6 +45,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingSignIn, setPendingSignIn] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -64,27 +68,47 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = useCallback(async () => {
-    if (!me) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const accountId = await connectWallet(me.network, me.contractId);
+  /** Signs the sign-in message with the connected wallet and starts the session. */
+  const signStep = useCallback(
+    async (network: string, accountId: string) => {
       const { nonce, message, recipient } = await api<{ nonce: string; message: string; recipient: string }>("/api/auth/nonce");
-      const signed = await signInMessage(me.network, { message, recipient, nonceBase64: nonce });
+      const signed = await signInMessage(network, { message, recipient, nonceBase64: nonce });
       await api("/api/auth/near", {
         json: { accountId: signed.accountId || accountId, publicKey: signed.publicKey, signature: signed.signature, nonce, ...("callbackUrl" in signed ? { callbackUrl: signed.callbackUrl } : {}) },
       });
       await refresh();
-    } catch (err) {
-      setError(errorMessage(err));
-      // Forget the wallet connection, so the next try asks which account to use (the remembered
-      // one may be a recipient's account from the claim page, or one this wallet no longer has).
-      await disconnectWallet(me.network);
-    } finally {
-      setBusy(false);
-    }
-  }, [me, refresh]);
+    },
+    [refresh],
+  );
+
+  const runSignIn = useCallback(
+    async (connectFirst: boolean) => {
+      if (!me) return;
+      setBusy(true);
+      setError(null);
+      let accountId = pendingSignIn;
+      try {
+        if (connectFirst || !accountId) accountId = await connectWallet(me.network, me.contractId);
+        setPendingSignIn(null);
+        await signStep(me.network, accountId);
+      } catch (err) {
+        if (accountId && isPopupBlockedError(err)) {
+          // The connect popup used up this click; the signing popup needs a new one.
+          setPendingSignIn(accountId);
+        } else {
+          setError(errorMessage(err));
+          // Forget the wallet connection, so the next try asks which account to use (the remembered
+          // one may be a recipient's account from the claim page, or one this wallet no longer has).
+          await disconnectWallet(me.network);
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [me, pendingSignIn, signStep],
+  );
+  const signIn = useCallback(() => runSignIn(true), [runSignIn]);
+  const continueSignIn = useCallback(() => runSignIn(false), [runSignIn]);
 
   const signOut = useCallback(async () => {
     if (!me) return;
@@ -100,6 +124,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [me, refresh]);
 
-  const value = useMemo(() => ({ me, loading, busy, error, signIn, signOut }), [me, loading, busy, error, signIn, signOut]);
+  const value = useMemo(
+    () => ({ me, loading, busy, error, signIn, pendingSignIn, continueSignIn, signOut }),
+    [me, loading, busy, error, signIn, pendingSignIn, continueSignIn, signOut],
+  );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

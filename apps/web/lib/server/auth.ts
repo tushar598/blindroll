@@ -64,7 +64,18 @@ export async function verifySignIn(
   });
   if (!ok) throw new HttpError(401, "bad_signature", "The wallet signature is not valid");
   if (!(await isFullAccessKey(input.accountId, publicKey))) {
-    throw new HttpError(401, "key_not_owned", "That key is not a full-access key of the account");
+    if (/^[0-9a-f]{64}$/.test(input.accountId)) {
+      throw new HttpError(
+        401,
+        "implicit_account",
+        `The wallet connected the implicit account ${input.accountId.slice(0, 8)}…${input.accountId.slice(-8)} (its address made from the key), not your named account. Approvers are named accounts such as name.testnet. In the wallet, add the account by its name, or use another wallet.`,
+      );
+    }
+    throw new HttpError(
+      401,
+      "key_not_owned",
+      `The wallet signed with a key that is not a full-access key of ${input.accountId}. If you imported this account into the wallet with a seed phrase, the wallet may have derived a different key: import it with the account's private key instead.`,
+    );
   }
   if (approverOrgIds(db, input.accountId).length === 0) {
     throw new HttpError(403, "not_approver", "This account is not an approver of any organization");

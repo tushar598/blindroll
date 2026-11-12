@@ -94,7 +94,7 @@ export const CLAIM_WINDOW = { minDays: 1, maxDays: 365, minMinutes: 10, maxMinut
  * NEAR wallets this app can offer: every Wallet Selector module that works on testnet with an
  * in-page NEP-413 signMessage (docs/07 "NEAR wallets"). Meteor is first and the default.
  */
-export const KNOWN_NEAR_WALLETS = ["meteor-wallet", "intear-wallet", "sender", "nightly", "my-near-wallet"] as const;
+export const KNOWN_NEAR_WALLETS = ["meteor-wallet", "intear-wallet"] as const;
 
 /**
  * Wallets offered in the UI. All known wallets by default. Optional env NEAR_WALLETS

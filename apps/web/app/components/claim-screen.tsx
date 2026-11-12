@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { buildViewMessage } from "@blindroll/core";
 import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { type EvmWallet, connectEvm, discoverEvmWallets, personalSign } from "@/lib/client/evm";
-import { callContract, configureWallets, connectWallet, currentWalletAccount, disconnectWallet, explorerTx, isWalletAccountError, signInMessage } from "@/lib/client/wallet";
+import { callContract, configureWallets, connectWallet, currentWalletAccount, disconnectWallet, explorerTx, isPopupBlockedError, isWalletAccountError, signInMessage } from "@/lib/client/wallet";
 import { NearWalletChoice, useNearWalletChoice } from "./near-wallet-choice";
 import { CrossChainSimNotice, RealBadge, TrustNotice } from "./notices";
 import { SimulatedBadge } from "./payouts-panel";
@@ -145,7 +145,10 @@ export function ClaimScreen() {
     try {
       await view(kind);
     } catch (err) {
-      if (kind.chain === "near" && isWalletAccountError(err)) {
+      if (kind.chain === "near" && isPopupBlockedError(err)) {
+        // Web wallets: the connect popup used up this click; "Continue as this account" signs with a new one.
+        setError(`${nearWallet.label} is connected. Press "Continue as this account" to sign the view message (your browser blocked the second popup).`);
+      } else if (kind.chain === "near" && isWalletAccountError(err)) {
         // The wallet no longer has the remembered account (e.g. another account is active in the wallet).
         await disconnectWallet(info.network);
         setRememberedNear(null);

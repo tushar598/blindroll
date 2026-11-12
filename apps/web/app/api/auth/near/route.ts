@@ -13,7 +13,7 @@ export const POST = handle(async (req) => {
   if (typeof accountId !== "string" || typeof publicKey !== "string" || typeof signature !== "string" || typeof nonce !== "string") {
     throw new HttpError(400, "bad_request", "accountId, publicKey, signature and nonce are required");
   }
-  // callbackUrl: only wallets that were given one (MyNearWallet) include it in the signed payload.
+  // callbackUrl: only wallets that were given one include it in the signed payload.
   const callbackUrl = acceptedCallbackUrl(b.callbackUrl, serverConfig().appUrl);
   const account = await verifySignIn(db(), { accountId, publicKey, signature, nonce, ...(callbackUrl ? { callbackUrl } : {}) }, isFullAccessKey);
   const res = NextResponse.json({ accountId: account });

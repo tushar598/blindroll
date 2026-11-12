@@ -21,7 +21,7 @@ interface WalletDef {
   signsMessages: boolean;
   /**
    * The wallet needs a callbackUrl for signMessage and puts it into the signed payload
-   * (MyNearWallet, which opens a popup and falls back to a redirect). We pass the current page
+   * (no offered wallet does today; MyNearWallet did before it was removed). We pass the current page
    * and send the same value to the server, which only accepts this app's own origin.
    */
   signsWithCallbackUrl: boolean;
@@ -31,15 +31,12 @@ type WalletModuleFactory = Parameters<typeof import("@near-wallet-selector/core"
 
 const WALLETS = {
   "meteor-wallet": { label: "Meteor", tested: true, signsMessages: true, signsWithCallbackUrl: false, load: () => import("@near-wallet-selector/meteor-wallet").then((m) => m.setupMeteorWallet()) },
-  "intear-wallet": { label: "Intear", tested: false, signsMessages: true, signsWithCallbackUrl: false, load: () => import("@near-wallet-selector/intear-wallet").then((m) => m.setupIntearWallet()) },
-  sender: { label: "Sender", tested: false, signsMessages: true, signsWithCallbackUrl: false, load: () => import("@near-wallet-selector/sender").then((m) => m.setupSender()) },
-  nightly: { label: "Nightly", tested: false, signsMessages: true, signsWithCallbackUrl: false, load: () => import("@near-wallet-selector/nightly").then((m) => m.setupNightly()) },
-  "my-near-wallet": { label: "MyNearWallet", tested: false, signsMessages: true, signsWithCallbackUrl: true, load: () => import("@near-wallet-selector/my-near-wallet").then((m) => m.setupMyNearWallet()) },
+  "intear-wallet": { label: "Intear", tested: true, signsMessages: true, signsWithCallbackUrl: false, load: () => import("@near-wallet-selector/intear-wallet").then((m) => m.setupIntearWallet()) },
 } satisfies Record<string, WalletDef>;
 type WalletId = keyof typeof WALLETS;
 /** Shown when a wallet cannot sign messages (sign-in and the claim page's view step need it). */
 export const NO_SIGN_MESSAGE =
-  "This wallet can't sign messages, which sign-in and viewing your payout need; use Meteor, Intear or Nightly for this step.";
+  "This wallet can't sign messages, which sign-in and viewing your payout need; use Meteor or Intear for this step.";
 const DEFAULT_WALLET: WalletId = "meteor-wallet";
 const ACTIVE_KEY = "blindroll.near-wallet";
 
@@ -127,7 +124,6 @@ export async function currentWalletAccount(network: string): Promise<string | nu
     const wallet = await (await getSelector(network)).wallet(activeWalletId());
     // Meteor's getAccounts() throws ("No current account connected…") instead of returning [] when
     // nothing is connected yet, so a failure here just means "not connected".
-    // MyNearWallet reports an empty account ID instead of none when signed out.
     return (await wallet.getAccounts())[0]?.accountId || null;
   } catch {
     return null;
@@ -204,8 +200,35 @@ export async function signInMessage(network: string, p: { message: string; recip
   // Some wallets hand back a PublicKey object or raw signature bytes instead of strings.
   const raw = signed as { publicKey: unknown; signature: unknown };
   const publicKey = String(raw.publicKey);
-  const signature = raw.signature instanceof Uint8Array ? Buffer.from(raw.signature).toString("base64") : String(raw.signature);
+  const signature = signatureToBase64(raw.signature);
   return { accountId: signed.accountId, publicKey, signature, ...(callbackUrl ? { callbackUrl } : {}) };
+}
+
+/**
+ * Wallet signatures arrive as base64 strings, Uint8Arrays, plain number arrays, or (after an
+ * extension's postMessage) `{ type: "Buffer", data: [...] }` or index-keyed objects.
+ */
+function signatureToBase64(sig: unknown): string {
+  if (typeof sig === "string") return sig;
+  if (sig instanceof Uint8Array) return Buffer.from(sig).toString("base64");
+  if (Array.isArray(sig)) return Buffer.from(sig as number[]).toString("base64");
+  if (sig && typeof sig === "object") {
+    const o = sig as { data?: unknown };
+    if (Array.isArray(o.data)) return Buffer.from(o.data as number[]).toString("base64");
+    const vals = Object.values(sig as Record<string, unknown>);
+    if (vals.length > 0 && vals.every((v) => typeof v === "number")) return Buffer.from(vals as number[]).toString("base64");
+  }
+  return String(sig);
+}
+
+/**
+ * True when the wallet could not open its popup. Web wallets (Intear) open one popup to
+ * connect and another to sign; the browser blocks the second when it is not the direct result of a
+ * click, so the caller asks for one more click instead of failing.
+ */
+export function isPopupBlockedError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /popup/i.test(msg) && /block/i.test(msg);
 }
 
 export interface TxResult {

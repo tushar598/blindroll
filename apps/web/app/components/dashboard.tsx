@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
 import { type PayeeDraft, buildPayeeCsv } from "@/lib/client/payees";
-import { NearWalletChoice, useNearWalletChoice } from "./near-wallet-choice";
+import { NearWalletChoice, useNearWalletChoice, WalletPickerDialog } from "./near-wallet-choice";
 import { useSession } from "./session";
 import { StatusPill } from "./status-pill";
 
@@ -21,6 +21,7 @@ interface RunListItem {
 export function Dashboard() {
   const { me, loading, busy, error, signIn } = useSession();
   const wallet = useNearWalletChoice(me?.network);
+  const [picking, setPicking] = useState(false);
   if (loading) return <p className="text-sm font-mono text-[#322E25]/60">Loading…</p>;
   if (!me?.accountId) {
     return (
@@ -82,7 +83,7 @@ export function Dashboard() {
             Each contributor sees only their own row and claims it themselves.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-4">
-            <button className="btn" onClick={() => void signIn()} disabled={busy || !me}>
+            <button className="btn" onClick={() => (wallet.wallets.length > 1 ? setPicking(true) : void signIn())} disabled={busy || !me}>
               <span>{busy ? "Check your wallet…" : "Sign in as an approver"}</span>
               <span className="text-xs">↗</span>
             </button>
@@ -91,6 +92,7 @@ export function Dashboard() {
           <div className="mt-4">
             <NearWalletChoice choice={wallet} disabled={busy} />
           </div>
+          {picking && <WalletPickerDialog choice={wallet} onClose={() => setPicking(false)} onPick={() => void signIn()} />}
           {error && <p className="mt-4 max-w-xl border border-[#a3271f]/30 bg-[#f8e6e2] px-3.5 py-2.5 text-xs font-mono text-[#a3271f]">{error}</p>}
         </div>
 

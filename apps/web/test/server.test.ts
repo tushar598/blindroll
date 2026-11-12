@@ -131,7 +131,7 @@ describe("NEP-413 formats from different wallets", () => {
     }
   });
 
-  it("verifies a signature that includes the callbackUrl the wallet was given (MyNearWallet)", async () => {
+  it("verifies a signature that includes the callbackUrl the wallet was given (NEP-413 wallets that sign one)", async () => {
     const db = openDb(":memory:");
     const callbackUrl = "http://localhost:3000/claim/run-x";
     let nonce = issueNonce(db, "sign_in");
@@ -305,10 +305,12 @@ describe("demo org approvers from DEMO_ORG_APPROVERS", () => {
 
   it("offers every known wallet by default; NEAR_WALLETS only narrows the list and keeps Meteor", async () => {
     const { enabledNearWallets } = await import("../lib/server/config");
-    expect(enabledNearWallets({})).toEqual(["meteor-wallet", "intear-wallet", "sender", "nightly", "my-near-wallet"]);
-    expect(enabledNearWallets({ NEAR_WALLETS: " sender , intear-wallet,sender" })).toEqual(["meteor-wallet", "intear-wallet", "sender"]);
+    expect(enabledNearWallets({})).toEqual(["meteor-wallet", "intear-wallet"]);
+    expect(enabledNearWallets({ NEAR_WALLETS: " intear-wallet , intear-wallet" })).toEqual(["meteor-wallet", "intear-wallet"]);
+    expect(() => enabledNearWallets({ NEAR_WALLETS: "sender" })).toThrow("unknown wallet ID");
     expect(enabledNearWallets({ NEAR_WALLETS: "meteor-wallet" })).toEqual(["meteor-wallet"]);
-    expect(enabledNearWallets({ NEAR_WALLETS: "nightly" })).toEqual(["meteor-wallet", "nightly"]);
+    expect(() => enabledNearWallets({ NEAR_WALLETS: "my-near-wallet" })).toThrow("unknown wallet ID");
+    expect(() => enabledNearWallets({ NEAR_WALLETS: "nightly" })).toThrow("unknown wallet ID");
     expect(() => enabledNearWallets({ NEAR_WALLETS: "phantom" })).toThrow("unknown wallet ID");
   });
 

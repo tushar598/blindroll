@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
+import { createPortal } from "react-dom";
 import { activeWalletId, activeWalletLabel, enabledWallets, loadWalletOptions, setActiveWallet } from "@/lib/client/wallet";
 
 /**
@@ -42,15 +43,62 @@ function TestedBadge({ tested }: { tested: boolean }) {
   );
 }
 
+/**
+ * The "Choose a NEAR wallet" dialog. `onPick` runs after the choice is saved, so the caller can
+ * connect or sign in with the picked wallet straight away.
+ */
+export function WalletPickerDialog({ choice, onClose, onPick }: { choice: ReturnType<typeof useNearWalletChoice>; onClose: () => void; onPick?: (id: string) => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  // Rendered into <body>: an ancestor with a backdrop filter (the sticky header) would otherwise
+  // trap a fixed-position overlay inside its own box.
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#322E25]/40 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Choose a NEAR wallet"
+        className="w-full max-w-sm border border-[#322E25]/30 bg-[#E9E1CD] p-5 font-mono shadow-[4px_4px_0px_0px_#322E25]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-bold uppercase tracking-tight">Choose a NEAR wallet</p>
+          <button type="button" className="text-sm text-[#322E25]/60" aria-label="Close" onClick={onClose}>✕</button>
+        </div>
+        <p className="mt-1 text-[11px] leading-5 text-[#322E25]/60">&ldquo;Tested&rdquo; means we tried it end to end on testnet. Untested wallets should work but have not been tried here yet.</p>
+        <ul className="mt-3 divide-y divide-[#322E25]/10 border-y border-[#322E25]/15">
+          {choice.wallets.map((w) => (
+            <li key={w.id}>
+              <button
+                type="button"
+                aria-pressed={w.id === choice.activeId}
+                className={`flex w-full items-center gap-3 px-2 py-2.5 text-left text-sm hover:bg-[#E1D7C0] ${w.id === choice.activeId ? "bg-[#E1D7C0]" : ""}`}
+                onClick={() => {
+                  choice.choose(w.id);
+                  onClose();
+                  onPick?.(w.id);
+                }}
+              >
+                <Icon src={w.iconUrl} label={w.label} />
+                <span className="flex-1 font-semibold">{w.label}</span>
+                <TestedBadge tested={w.tested} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 /** Wallet picker: the current wallet and a "Change" button that opens a modal. Hidden with one wallet. */
 export function NearWalletChoice({ choice, disabled, onChange }: { choice: ReturnType<typeof useNearWalletChoice>; disabled?: boolean; onChange?: () => void }) {
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
   if (choice.wallets.length < 2) return null;
   const current = choice.wallets.find((w) => w.id === choice.activeId) ?? choice.wallets[0]!;
   return (
@@ -62,43 +110,7 @@ export function NearWalletChoice({ choice, disabled, onChange }: { choice: Retur
       <button type="button" className="underline text-[#0667DC] disabled:opacity-40" disabled={disabled} onClick={() => setOpen(true)}>
         Change
       </button>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#322E25]/40 p-4" onClick={() => setOpen(false)}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Choose a NEAR wallet"
-            className="w-full max-w-sm border border-[#322E25]/30 bg-[#E9E1CD] p-5 font-mono shadow-[4px_4px_0px_0px_#322E25]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-bold uppercase tracking-tight">Choose a NEAR wallet</p>
-              <button type="button" className="text-sm text-[#322E25]/60" aria-label="Close" onClick={() => setOpen(false)}>✕</button>
-            </div>
-            <p className="mt-1 text-[11px] leading-5 text-[#322E25]/60">&ldquo;Tested&rdquo; means we tried it end to end on testnet. Untested wallets should work but have not been tried here yet.</p>
-            <ul className="mt-3 divide-y divide-[#322E25]/10 border-y border-[#322E25]/15">
-              {choice.wallets.map((w) => (
-                <li key={w.id}>
-                  <button
-                    type="button"
-                    aria-pressed={w.id === choice.activeId}
-                    className={`flex w-full items-center gap-3 px-2 py-2.5 text-left text-sm hover:bg-[#E1D7C0] ${w.id === choice.activeId ? "bg-[#E1D7C0]" : ""}`}
-                    onClick={() => {
-                      choice.choose(w.id);
-                      setOpen(false);
-                      onChange?.();
-                    }}
-                  >
-                    <Icon src={w.iconUrl} label={w.label} />
-                    <span className="flex-1 font-semibold">{w.label}</span>
-                    <TestedBadge tested={w.tested} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
+      {open && <WalletPickerDialog choice={choice} onClose={close} onPick={() => onChange?.()} />}
     </div>
   );
 }
