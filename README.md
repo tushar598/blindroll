@@ -1,122 +1,135 @@
 # Blindroll
 
-Claim-based payroll on NEAR for DAOs and crypto-native teams (NEAR Hackathon: Real-World Money + Privacy & Private AI).
+**Claim-based payroll on NEAR** — built for the NEAR Hackathon (Real-World Money + Privacy & Private AI).
 
-An approver uploads a payroll CSV. NEAR AI Cloud proposes which column is which; code normalizes the table and runs the rule checks. Approvers lock test USDC in a contract that stores only a Merkle root and a report hash. Each contributor signs with their own wallet, sees only their own row, and claims their own payout.
+DAOs and crypto-native teams run payroll from a single NEAR treasury. Approvers upload a CSV, private AI cleans and validates it, an attested report is locked on-chain, and each contributor claims their own payout in the asset and chain they prefer — gas-free, without ever seeing anyone else's data.
 
-- No public salary table. Payroll data is processed privately; only a Merkle root and a report hash go on-chain.
-- Each contributor sees only their own row.
-- Payouts are standard on-chain transfers: a claim makes that recipient's address and amount public. See [what is and isn't private](#what-is-and-isnt-private).
+> **No public salary table. No wrong-address payments. No trust in the approver. Just math and signatures.**
 
-Specs are in [`docs/`](docs/README.md). Everything below runs on **NEAR testnet** with a mock USDC token.
+---
+
+## How it works
+
+### Approver flow
+
+![Approver flow](docs/assets/flow-approver.png)
+
+| Step | What happens |
+|---|---|
+| Sign in | NEAR wallet (Meteor), signed message — not a transaction |
+| Upload CSV | Any column names, any format, up to 500 rows |
+| Private AI maps columns | NEAR AI Cloud (TEE) returns a signed, schema-validated mapping |
+| Rules check and review | Errors block finalize; warnings need a written reason |
+| Finalize | Merkle root + attested report hash locked — table is immutable |
+| Create & approve on-chain | `create_run` + `approve_run` (M-of-N) from browser wallets |
+| Fund with USDC | `ft_transfer_call` activates the run; claim link is shared |
+
+### Recipient flow
+
+![Recipient flow](docs/assets/flow-recipient.png)
+
+| Step | What happens |
+|---|---|
+| Open claim link | The link reveals nothing without a valid signature |
+| Connect wallet & sign | Sees only their own row and Merkle proof |
+| Choose payout | USDC on NEAR, or any chain via NEAR Intents (1Click) with live estimates |
+| Sign the claim | Locks in the destination; relayer submits on-chain, pays gas |
+| Payout delivered | USDC on NEAR (real), or via 1Click cross-chain |
+| If delivery fails | Refund returns to contract → approver reopens → recipient claims again |
+| Deadline passes | Unclaimed funds returned to treasury via `reclaim_unclaimed` |
+| Verify & export | Report hash, Merkle root, AI signature — all checked in browser; CSV/JSON download |
+
+---
+
+## Privacy model
+
+| | Visible to the public? |
+|---|---|
+| Full payroll table, unclaimed rows | **No** — never published |
+| Names, emails, roles, memos | **No** — off-chain only |
+| AI prompts and responses | **No** — only their hashes and the response signature are in the report |
+| Run metadata (approvers, deadline, total, Merkle root, report hash) | **Yes** |
+| A claimed row's address and amount | **Yes, once claimed** |
+
+The backend stores the table encrypted at rest (AES-256-GCM) and serves each recipient only their own row after a valid wallet signature. After everyone claims, an observer can reconstruct amounts and addresses from the chain — what stays hidden is everything unclaimed: identities, memos, and rows not yet claimed.
+
+---
+
+## Testnet deployment
 
 | | |
 |---|---|
 | Contract | [`blindroll.blindroll-dev.testnet`](https://testnet.nearblocks.io/address/blindroll.blindroll-dev.testnet) |
 | Test token (mUSDC) | [`usdc.blindroll-dev.testnet`](https://testnet.nearblocks.io/address/usdc.blindroll-dev.testnet) |
-| Relayer (pays the gas for claims) | [`relayer.blindroll-dev.testnet`](https://testnet.nearblocks.io/address/relayer.blindroll-dev.testnet) |
-| Example run on-chain | [`create_run` transaction](https://testnet.nearblocks.io/txns/4Got5u17zqcup7Fk6NDGMtX5TrZbdD5cMU4Xcrqfgixu) |
-| Hosted demo | Not deployed yet; run it locally (below) |
+| Relayer | [`relayer.blindroll-dev.testnet`](https://testnet.nearblocks.io/address/relayer.blindroll-dev.testnet) |
+| Example `create_run` | [transaction on NEARBlocks](https://testnet.nearblocks.io/txns/4Got5u17zqcup7Fk6NDGMtX5TrZbdD5cMU4Xcrqfgixu) |
+| Example gas-free claim | [transaction on NEARBlocks](https://testnet.nearblocks.io/txns/7cLq3BTUQA3jpPXbYQUQwReqgyvw3coxjjHFow6VPr4w) |
 
-## Try it: do X → see Y
-
-You need the [Meteor wallet](https://meteorwallet.app) with a testnet account that is an approver of the demo organization, and MetaMask (or any EVM wallet extension) for an EVM recipient.
-
-| Do | See |
-|---|---|
-| Open the app, **Sign in with NEAR** (Meteor) | Your approver account in the header. Signing in is a signed message, not a transaction |
-| **New run**: upload [`docs/samples/payroll-messy.csv`](docs/samples/payroll-messy.csv) | The proposed column mapping (one NEAR AI Cloud call, or a cached result for a file seen before) and the normalized table with rule findings: errors on bad rows, a warning on an outlier |
-| Fix or remove the rows with errors, accept the warning with a reason, **Finalize** | The Merkle root and the report hash. The table is locked |
-| **Create run from my wallet** | A real `create_run` transaction. Only the root, the report hash, approvers and deadline are stored |
-| **Approve** as each approver (threshold 2) | Approvals appear as each approver signs; the page re-reads the contract by itself |
-| **Get test USDC**, then **Fund** | The run becomes Active and shows the claim link |
-| Open the claim link, connect the recipient's wallet, sign the view message | Only that wallet's row. A wallet that is not in the run learns nothing |
-| Choose **USDC on NEAR** and claim | Gas-free for both wallet kinds. EVM wallet: you sign a message and the relayer submits it. NEAR wallet, to your own account: nothing more to sign, the relayer submits `claim_near_relayed`, which can only pay your own account ([example transaction](https://testnet.nearblocks.io/txns/7cLq3BTUQA3jpPXbYQUQwReqgyvw3coxjjHFow6VPr4w)). The test USDC arrives and the transaction is linked |
-| Choose **USDC on Base** (badged **Simulated**) and claim | A real claim that pays the test USDC to a holding account. Nothing arrives on Base: 1Click has no testnet |
-| On the run page, **Claims** → **Simulate a failed delivery and refund** → **Reopen claim** | A real refund transfer back to the contract (linked), then a real `reopen_claim`. The recipient can claim again |
-| After the claim deadline, **Reclaim unclaimed funds** on the run page | The unclaimed amount and the refund account, read from the contract, then a real `reclaim_unclaimed` that sends it back and closes the run. To try it without waiting, finalize with a claim window in minutes (testnet only) |
-| On an unfunded run, **Cancel run** | A real `cancel_run`; the run can no longer be funded or claimed |
-| Open **Verify the report and export** | ✓ / ✗ for each check, computed in your browser: report hash, the hash stored on the contract (read from a public RPC), Merkle root, totals, and the NEAR AI Cloud signature. Approvers can download the reconciled CSV/JSON |
-
-Every step above happens in a browser wallet; the product has no terminal step. Two contract methods are **operator-only** and have no button on purpose: `set_paused` and `set_relayer` can be called only by the contract owner (the deploying account) to stop claims in an emergency or replace the relayer. They are not part of the approver or recipient flow.
-
-## Run it locally
-
-Requirements: Node 24+, pnpm. For the contracts: Rust 1.95+ with the `wasm32-unknown-unknown` target and [`cargo-near`](https://github.com/near/cargo-near) 0.23+.
-
-```
-pnpm install
-cp .env.example .env.local     # at the repo root; fill in the values (never commit this file)
-pnpm env:check                 # prints only the NAMES of anything missing
-pnpm --filter web dev          # http://localhost:3000
-```
-
-Tests:
-
-```
-pnpm -r test                   # vitest: packages/core and apps/web
-pnpm -r typecheck
-cd contracts && cargo test     # Rust unit tests + a local sandbox test (builds both wasm files)
-```
-
-Read-only checks against testnet: `pnpm report:verify <run_key>` (the verify page's checks from the command line), `pnpm simsink:check`. `pnpm relayer:check` sends one harmless transaction from the relayer.
-
-## How it works
-
-1. **CSV → table.** The file is parsed by code. One NEAR AI Cloud call returns a schema-validated column mapping; emails are masked before the call. The AI never decides a payment: amounts, addresses and all rule checks are computed by code, and an approver can map the columns by hand instead.
-2. **Review.** Errors must be fixed or the row removed; warnings need a written reason. Every edit re-runs the whole check.
-3. **Finalize.** Each row becomes a salted leaf; the leaves form a Merkle tree. A report (hashes and counts only) is written as canonical JSON and its sha256 goes on-chain with the root.
-4. **Approve and fund.** `create_run`, `approve_run` (2 of 2) and an `ft_transfer_call` that funds the run, all signed in the approvers' wallets.
-5. **Claim.** The recipient proves the address is theirs with a signature, gets their row and Merkle proof, and claims. The contract checks the proof and the signature, marks the leaf claimed and transfers the USDC.
-
-The leaf format, Merkle rules and claim message are identical in TypeScript (`packages/core`) and Rust (`contracts/blindroll`); shared test vectors prove it byte for byte.
+---
 
 ## Real vs simulated
 
 | Part | Status |
 |---|---|
-| Blindroll contract (Merkle proofs, EVM signature recovery, approvals, payouts, reopen) | **Real**, deployed on NEAR testnet |
-| Approver flow: sign-in, create, approve, fund | **Real** testnet transactions from browser wallets |
-| AI column mapping | **Real** NEAR AI Cloud call. The response signature is verified at finalize and again on the verify page |
-| Claims paid as USDC on NEAR, gas-free through the relayer (EVM wallet: signed claim message; NEAR wallet: `claim_near_relayed` to the recipient's own account) | **Real** testnet transactions |
-| USDC | **Mock token** (`contracts/mock-usdc`, symbol `mUSDC`, open mint, no value). Real USDC exists only on mainnet, which this project has not used |
-| Cross-chain payout estimates (USDC on Base / Arbitrum) | **Real** 1Click dry quotes, priced with mainnet assets and labelled "estimated". A dry quote moves no funds |
-| Cross-chain delivery on testnet | **Simulated.** 1Click has no testnet. The recipient really signs, the contract really verifies and really pays the test USDC, but to a holding account (`SIM_SINK_ACCOUNT_ID`) where a 1Click deposit address would be. Nothing arrives on the destination chain. Marked `simulated: true` in API responses and badged "Simulated" on the claim page and the approver's run page |
-| Failed delivery → refund → reopen on testnet | The **failure is simulated** (an approver presses a button). The **refund is real**: the holding account transfers the same test USDC back to the contract, and only after that transaction does the app allow the real on-chain `reopen_claim`. The refund transaction is linked in the UI |
-| TEE attestation of the AI call | **Stored, not verified.** See limitations |
-| EVM signatures in tests | Real secp256k1 signatures made with the public Hardhat/Anvil development keys (test fixtures, not secrets) |
+| NEAR contract — Merkle proofs, EVM signature recovery, approvals, payouts, reopen | **Real** (testnet) |
+| Approver flow — sign in, create, approve, fund | **Real** testnet transactions |
+| AI column mapping | **Real** NEAR AI Cloud call; response signature verified at finalize and on the verify page |
+| USDC claims via relayer (EVM + NEAR wallets) | **Real** testnet transactions |
+| USDC | **Mock** (`mUSDC`, open mint, no value; mainnet uses native USDC) |
+| Cross-chain payout estimates | **Real** 1Click dry quotes (mainnet prices, labelled "estimated") |
+| Cross-chain delivery on testnet | **Simulated** — 1Click has no testnet; funds go to a holding account, nothing arrives on the destination chain |
+| Failed delivery → refund → reopen | Failure **simulated** by approver button; refund and `reopen_claim` are **real** on-chain transactions |
+| TEE attestation | Stored, **not verified** (Intel TDX quote verification not implemented; report says `verified: false`) |
 
-The simulation exists only on test networks: with `NEAR_NETWORK=mainnet` the app refuses to start if a holding account is configured, and never offers a simulated option.
+---
 
-## What is and isn't private
+## Run locally
 
-| | Visible to the public? |
-|---|---|
-| The full payroll table, unclaimed rows | No. Never published |
-| Names, emails, roles, memos | No. Off-chain only |
-| AI prompts and responses | No. Only their hashes and the signature are in the report |
-| Run, approvers, threshold, deadline, total funded, Merkle root, report hash | Yes |
-| A claimed row's address and amount | **Yes, once claimed** (claim transaction and token transfer) |
+**Requirements:** Node 24+, pnpm 9+. Contracts: Rust 1.95+, `wasm32-unknown-unknown` target, [`cargo-near`](https://github.com/near/cargo-near) 0.23+.
 
-After everyone has claimed, an observer can rebuild most addresses and amounts from the chain. What stays hidden: unclaimed rows, identities, memos, and the table before claims.
+```sh
+pnpm install
+cp .env.example .env.local   # fill in values — never commit
+pnpm env:check               # lists any missing variable names
+pnpm --filter web dev        # http://localhost:3000
+```
 
-The Blindroll backend sees the table in plaintext. It stores it encrypted at rest (AES-256-GCM) and serves each recipient only their own row after a valid signature from that address. Approvers see the table. The model sees the header and sample rows inside NEAR AI Cloud's TEE.
+**Tests:**
+
+```sh
+pnpm -r test                 # vitest (packages/core + apps/web)
+pnpm -r typecheck
+cd contracts && cargo test   # Rust unit tests + sandbox integration test
+```
+
+Use [`docs/samples/payroll-messy.csv`](docs/samples/payroll-messy.csv) as the sample upload. Set `NEAR_AI_LIVE=1` to make a real AI call (cached by CSV hash after the first).
+
+---
+
+## Repo structure
+
+```
+apps/web/          Next.js 16 app — approver UI, claim UI, API routes
+packages/core/     Merkle tree, claim messages, CSV rules, AI client (TypeScript)
+contracts/
+  blindroll/       NEAR smart contract (Rust)
+  mock-usdc/       Testnet-only USDC token (Rust)
+docs/              Full specs (product, architecture, contract, AI, privacy, API…)
+```
+
+---
 
 ## Known limitations
 
-- **Attestation is not verified.** The TEE attestation is fetched before the AI call, bound to a fresh nonce and stored, and its hash is in the report, but the Intel TDX quote is not verified. Only the response signature is. The report and the verify page say `verified: false`.
-- **Refunds are not proven on-chain.** `reopen_claim` trusts the approvers that the funds came back. The app only offers it after the refund transfer succeeded, but the contract itself does not compare its balance with what it owes.
-- **Gas-free NEAR claims only pay your own account.** The relayer can submit a NEAR recipient's claim because the contract then pays that recipient's own account and nothing else. A NEAR recipient who wants the USDC in a different NEAR account sends `claim_near` from their own wallet and pays the gas. The relayer could also deliver a NEAR payout to its rightful account before the recipient asks; it can never redirect one. This is not a NEP-366 meta-transaction: Meteor could not be shown to sign delegate actions in time.
-- **One tested NEAR wallet.** Meteor. Intear and Sender are wired but switched off (`NEAR_WALLETS`) because they have not been tested.
-- **Cross-chain delivery is not real on testnet** (above). The mainnet 1Click path with a real quote and deposit address is not built.
-- **One seeded organization.** There is no organization management UI; approvers are configuration.
-- **A backend you must trust** (above), and a single SQLite file as its database.
-- Not built: confidential payouts, Solana wallets, notifications, history-based rules.
+- **TEE attestation not verified.** Only the response signature is checked; Intel TDX quote verification is not done.
+- **Refunds not proven on-chain.** `reopen_claim` is offered only after the refund transfer succeeds, but the contract itself does not verify the amount came back.
+- **Gas-free NEAR claims pay your own account only.** A different NEAR destination requires sending `claim_near` from your own wallet.
+- **One tested wallet.** Meteor only; Intear and Sender are wired but untested.
+- **Cross-chain delivery not real on testnet.** The mainnet 1Click execution path is not built.
+- **No org management UI.** Approvers are set via environment config.
 
-## Mock USDC is test-only
+---
 
-`contracts/mock-usdc` lets anyone mint any amount. To stop it being used on mainnet by mistake:
+## License
 
-- The contract panics in `new` and `mint` unless its own account ID ends with `.testnet`, `.test.near` or `.sandbox`.
-- `assertNetworkConfig` in `packages/core/src/config.ts` refuses `NEAR_NETWORK=mainnet` together with a test-network token or contract ID. The app and deploy scripts must call it at startup.
-- On mainnet, set `USDC_TOKEN_ID` to native USDC, after confirming the contract ID from Circle's or NEAR's documentation and checking the `storage_deposit` note in `docs/04-smart-contract-spec.md`.
+MIT — see [LICENSE](LICENSE).
