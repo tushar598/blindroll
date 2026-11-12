@@ -1,8 +1,8 @@
 # Blindroll
 
-**Claim-based payroll on NEAR** — built for the NEAR Hackathon (Real-World Money + Privacy & Private AI).
+**Claim-based payroll on NEAR**,  built for the NEAR Hackathon (Real-World Money + Privacy & Private AI).
 
-DAOs and crypto-native teams run payroll from a single NEAR treasury. Approvers upload a CSV, private AI cleans and validates it, an attested report is locked on-chain, and each contributor claims their own payout in the asset and chain they prefer — gas-free, without ever seeing anyone else's data.
+DAOs and crypto-native teams run payroll from a single NEAR treasury. Approvers upload a CSV, private AI cleans and validates it, an attested report is locked on-chain, and each contributor claims their own payout in the asset and chain they prefer, gas-free, without ever seeing anyone else's data.
 
 > **No public salary table. No wrong-address payments. No trust in the approver. Just math and signatures.**
 
