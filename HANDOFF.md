@@ -1,6 +1,6 @@
 # HANDOFF — read this first in every new session
 
-Last updated: 2026-11-12 (later session). Commit `8e19280` holds decisions 6, 8, 9. On top of it, UNCOMMITTED: the no-CLI work (CLI commands deleted, Reclaim and Cancel buttons, new default approvers and refund account, testnet-only claim window in minutes). Decision 7: the account exists, browser test pending; decision 10 not started. vitest 153 + 44, typecheck, lint and the production build pass. Update this file at the end of every work session.
+Last updated: 2026-11-12 (review-fixes session, after the owner's full browser test passed). All work is committed locally (nothing pushed); see "Review fixes (2026-11-12)" below. vitest 163 + 45, typecheck, lint and `pnpm build` pass; `cargo test` 132 + 5 unit tests and 3 sandbox tests pass. Update this file at the end of every work session.
 
 ## 1. Project in one paragraph
 Blindroll is claim-based payroll on NEAR for the NEAR Hackathon (tracks: Real-World Money + Privacy & Private AI). An approver uploads a messy payroll CSV; NEAR AI Cloud (TEE) proposes a column mapping; deterministic code normalizes and runs rules; an attested report is built; approvers sign and fund USDC into a contract that stores only a Merkle root and the report hash; each recipient verifies their wallet, sees only their own row, and claims in their chosen asset/chain (NEAR USDC or 1Click), gas-free. Full specs: `docs/` (start at `docs/README.md`). Rules: `AGENTS.md`.
@@ -21,6 +21,19 @@ Deadline: hackathon ends Nov 14, 2026 (confirm the exact time on https://nearhac
 | `ui-overhaul` | Complete brutalist UI overhaul matching Near_build-UI-design: `#E9E1CD` parchment background, `#E1D7C0]/60` cards, all buttons with `#0667DC` cobalt blue background, white text (`text-white font-mono`), white border & white drop-shadow with hover lift (`hover:bg-[#0556B8] hover:shadow-[3px_3px_0px_0px_#ffffff]`), `#322E25]/15` borders, dual-row marquee, responsive layouts |
 
 Tests at last check (2026-11-12): `pnpm -r test` 153 (core) + 43 (web) passed; `pnpm --filter web lint` clean; `pnpm -r typecheck` and `pnpm build` clean; `cargo test` 112 + 5 unit tests and 3 sandbox tests passed.
+
+### Review fixes (2026-11-12, goal: lift the external 6.8/10 review)
+Commits `8de2574`..HEAD. No contract code changed, no redeploy, no new dependency, no new external service, no new simulation, no live AI call.
+- **Trust notice** (`apps/web/app/components/notices.tsx` → `TrustNotice`) on the claim page and the run page: the server can read the full table (encrypted at rest), shows a recipient only their row after a wallet signature; on-chain only the root and report hash; a claim reveals that one recipient's address and amount; future work: TEE backend. README privacy section and docs/08 now start with this. docs/08 has "Why not client-side decryption (yet)".
+- **Attestation checks, one by one** (`packages/core/src/ai/attestation.ts` → `checkAttestationEvidence`; new public `GET /api/runs/:runKey/attestation`, raw stored attestation whose sha256 is in the report). Verify page and `pnpm report:verify` list: (a) response signature ✅, (b) document hash = report ✅, (c) signer is the attested model key ✅, (d) quote report_data binds signer + nonce ✅, (e) RTMR3 event-log replay ✅, (f) MRCONFIGID = compose hash ✅, (g) Intel DCAP quote signature **not verified**, (h) NVIDIA GPU evidence **not verified**. The page says b–f are consistency only until (g). `ai.attestation.verified` stays `false`. Checked on the fixture and on the real stored run `run-Ngs7_871eapi` (same result). Field names re-checked against the live NEAR AI docs; recorded in docs/05 "Attestation checks".
+- **Claim page:** 3-step indicator (Open link → Connect wallet → Get paid), shorter copy, "USDC on NEAR" first, pre-selected, blue edge + "Real on testnet" + "Recommended"; cross-chain option note "Estimated from live mainnet quote — delivery simulated on testnet." One banner (`CrossChainSimNotice`) on the claim page (when cross-chain options or a simulated claim show) and on the run page's claims list (when a simulated payout exists). Wording checked against the code (dry quote; contract pays the sim sink; the refund is the sim sink's real transfer back).
+- **Landing page copy** no longer says "Cryptographic privacy end to end" / "confidential enclave"; it notes that off-chain still means the server can read the table.
+- **"Or add payees by hand"** on the approver upload screen: name, wallet, amount, memo → an ordinary CSV (`apps/web/lib/client/payees.ts`) uploaded through the same pipeline (mapping, rules, review). With `NEAR_AI_LIVE=1` that is one mapping call per new list, like any new file.
+- **Contract tests:** 20 new unit tests (claim_evm and claim_near_relayed on cancelled / unfunded / partly funded / paused runs, after the deadline, wrong proof, double claim; reopen by relayer, recipient or owner; malformed, wrong or unknown leaf hash / run). No contract bug found.
+- **Docs:** README top (pitch, differentiators, "How a company uses this", real vs simulated with one row per attestation check and "Confidential payout rail: not built"), Future work; docs/05, 06 ("Roadmap: confidential payout rail", checked against the live NEAR Intents docs; unknowns written as "to be confirmed"), 08, 09 (new endpoint), 02.
+- **Checked:** README contract IDs and both example transactions exist on testnet; the contract code hash on testnet is `d9e9c6fe…` (matches below).
+- **NOT verified in a browser:** the new notices, the verify page's per-check list, the claim step indicator and the payee form (typecheck, lint, tests and a production build pass; pages and endpoints answered 200 on a local `pnpm start`).
+- **Owner decision open:** adding an Intel DCAP verifier (e.g. Phala's `dcap-qvl`, WASM) — a new dependency that also needs Intel collateral from Intel PCS or a third-party PCCS. Not added.
 
 ### No terminal anywhere in the product (2026-11-12, uncommitted)
 - **Deleted:** the copyable NEAR CLI commands in `chain-steps.tsx` (`SHOW_CLI`, the command strings, the `Cli` component), in development too.
@@ -167,11 +180,11 @@ Still to apply:
 Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see the root `package.json` scripts).
 
 ## 5. Next steps, in order
-1. **Owner:** restart the app (the new default approvers are seeded at startup), then run the browser checklist from the 2026-11-12 PROGRESS message: sign in → upload → finalize with a window in minutes → create → approve ×2 → Get test USDC → fund → claim (EVM + NEAR gas-free) → simulated refund → reopen → claim again → wait for the deadline → reclaim. Also try Cancel on a second, unfunded run.
-2. **Owner:** commit the no-CLI work, push to GitHub, deploy on Railway with the settings in section 3. The worker fixes anything that breaks on the hosted build.
-3. **Optional, owner:** test Intear and/or Sender, then set `NEAR_WALLETS`.
-4. README: add the hosted URL (row "Hosted demo") and re-check every row after the deploy. Then the 2-minute video and submit by Nov 14.
-5. Only after 1–4: decision 10, in order (a) `reopen_claim` balance check, (b) DCAP attestation verification, (c) Confidential Intents, (d) DAO approvals. Stop and ship if the deadline gets close.
+1. **Owner:** re-test in the browser only what the review fixes touched (list in the 2026-11-12 review-fixes PROGRESS message): claim page (steps, notice, options, banner), run page (notice, claims list banner), verify page (per-check list), "Or add payees by hand".
+2. **Owner:** push to GitHub, deploy on Railway with the settings in section 3. The worker fixes anything that breaks on the hosted build.
+3. README: add the hosted URL (row "Hosted demo") and re-check every row after the deploy. Then the 2-minute video and submit by **14 Nov 2026 23:59 UTC**.
+4. **Optional, owner:** test Intear and/or Sender, then set `NEAR_WALLETS`.
+5. Only if time is left and the owner says yes: DCAP verification (needs a decision on `dcap-qvl` + collateral source), `reopen_claim` balance check (contract change + redeploy). Confidential Intents stays roadmap-only.
 
 ## 6. Open risks / known gaps
 - **No CLI steps remain in the product.** Runs created before 2026-11-12 (for example `run-Ngs7_871eapi`) still have `blindroll-dev.testnet` as approver and refund account in the contract; use a new run for the browser-only test.
@@ -179,13 +192,13 @@ Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see t
 - **Hosted build not yet run on Linux**; see "Deploy on Railway".
 - **One NEAR wallet connection per browser** is shared by approver pages and the claim page. The claim page shows the remembered account and offers "Switch account"; wallet-sent transactions check the signer first (`ensureWalletAccount` in `apps/web/lib/client/wallet.ts`).
 - **Export column `leaf_index`** is the Merkle tree position, not the row number of the uploaded file (the file row number is not stored after finalize). DAO/multisig approvals (SputnikDAO, Trezu) are a stretch goal listed there under "Later".
-- AI attestation: only the signature and the nonce/signer binding fields are checked; no Intel DCAP quote verification (see docs/05).
+- AI attestation: signature plus five offline consistency checks (docs/05 "Attestation checks"); no Intel DCAP quote verification and no NVIDIA GPU evidence check, so `verified: false`.
 - `reopen_claim` trusts that 1Click really refunded (see docs/04 "Open issue: proving the refund").
 - 1Click has no testnet: cross-chain delivery on testnet is the owner-approved simulation with a real refund (docs/06); dry quotes are real.
 - 1Click **dry** quote schema confirmed; the non-dry response (`depositAddress`, deadline fields) is still unconfirmed and needs an existing mainnet `refundTo`.
 - Native mainnet USDC contract ID and its `storage_deposit` behaviour not yet confirmed.
 - Gas-free NEAR claims rely on the relayer being the only caller of `claim_near_relayed`. A stolen relayer key could deliver NEAR payouts early to their rightful accounts (never redirect them); rotate with `set_relayer` (docs/11 T3).
-- Confidential Intents: optional, timeboxed to one day, not started.
+- Confidential Intents: not built; roadmap only (docs/06 "Roadmap: confidential payout rail").
 
 ## 7. How to work with the owner
 - Ask before simulating anything: send a **SIMULATION REQUEST** (what, why, where, labelling, what stays real, path to real).

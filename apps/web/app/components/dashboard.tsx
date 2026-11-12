@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
+import { type PayeeDraft, buildPayeeCsv } from "@/lib/client/payees";
 import { NearWalletChoice, useNearWalletChoice } from "./near-wallet-choice";
 import { useSession } from "./session";
 import { StatusPill } from "./status-pill";
@@ -242,6 +243,8 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
   const [runs, setRuns] = useState<RunListItem[] | null>(null);
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [payees, setPayees] = useState<PayeeDraft[]>([]);
+  const [draft, setDraft] = useState<PayeeDraft>({ name: "", wallet: "", amount: "", memo: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -254,12 +257,30 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
   async function upload(e: FormEvent) {
     e.preventDefault();
     if (!file) return;
+    await send(file, name.trim() || file.name.replace(/\.csv$/i, ""));
+  }
+
+  /** Typed payees become an ordinary CSV and go through the same upload, mapping and rules. */
+  async function uploadPayees() {
+    if (payees.length === 0) return;
+    const csv = new File([buildPayeeCsv(payees)], "payees.csv", { type: "text/csv" });
+    await send(csv, name.trim() || `Payees ${new Date().toISOString().slice(0, 10)}`);
+  }
+
+  function addPayee(e: FormEvent) {
+    e.preventDefault();
+    if (draft.wallet.trim() === "" || draft.amount.trim() === "") return;
+    setPayees((p) => [...p, { name: draft.name.trim(), wallet: draft.wallet.trim(), amount: draft.amount.trim(), memo: draft.memo.trim() }]);
+    setDraft({ name: "", wallet: "", amount: "", memo: "" });
+  }
+
+  async function send(csv: File, runName: string) {
     setBusy(true);
     setError(null);
     try {
       const form = new FormData();
-      form.set("file", file);
-      form.set("name", name.trim() || file.name.replace(/\.csv$/i, ""));
+      form.set("file", csv);
+      form.set("name", runName);
       form.set("orgId", orgId);
       const { runKey } = await api<{ runKey: string }>("/api/runs", { form });
       router.push(`/runs/${runKey}`);
@@ -292,6 +313,53 @@ function ApproverHome({ orgId, orgName, aiLive }: { orgId: string; orgName: stri
           </p>
           {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f]">{error}</p>}
         </form>
+
+        <details className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6 mt-4 font-mono">
+          <summary className="cursor-pointer text-sm font-bold uppercase tracking-tight">Or add payees by hand</summary>
+          <p className="mt-2 text-xs text-[#322E25]/60 leading-5">
+            For a few contractors without a spreadsheet. The rows become a CSV and go through the same column mapping, rule checks and review as an upload.
+          </p>
+          <form onSubmit={addPayee} className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="label" htmlFor="payee-name">Name</label>
+              <input id="payee-name" className="field mt-1" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} maxLength={100} />
+            </div>
+            <div>
+              <label className="label" htmlFor="payee-wallet">Wallet</label>
+              <input id="payee-wallet" className="field num mt-1" value={draft.wallet} onChange={(e) => setDraft({ ...draft, wallet: e.target.value })} placeholder="name.testnet or 0x…" spellCheck={false} autoComplete="off" maxLength={100} />
+            </div>
+            <div>
+              <label className="label" htmlFor="payee-amount">Amount (USDC)</label>
+              <input id="payee-amount" className="field num mt-1" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} placeholder="1200.50" inputMode="decimal" maxLength={30} />
+            </div>
+            <div>
+              <label className="label" htmlFor="payee-memo">Memo</label>
+              <input id="payee-memo" className="field mt-1" value={draft.memo} onChange={(e) => setDraft({ ...draft, memo: e.target.value })} placeholder="October invoice" maxLength={200} />
+            </div>
+            <button className="btn-quiet sm:col-span-2" disabled={busy || draft.wallet.trim() === "" || draft.amount.trim() === "" || payees.length >= 500}>Add payee</button>
+          </form>
+          {payees.length > 0 && (
+            <>
+              <ul className="mt-4 divide-y divide-[#322E25]/10 border-y border-[#322E25]/15 text-xs">
+                {payees.map((p, i) => (
+                  <li key={i} className="flex items-center justify-between gap-3 py-2">
+                    <span className="min-w-0 truncate">
+                      {p.name || "(no name)"} · <span className="num">{p.wallet}</span> · <span className="num font-semibold">{p.amount}</span>
+                      {p.memo && ` · ${p.memo}`}
+                    </span>
+                    <button type="button" className="shrink-0 underline text-[#322E25]/60" disabled={busy} onClick={() => setPayees((all) => all.filter((_, j) => j !== i))}>Remove</button>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" className="btn w-full mt-4" disabled={busy} onClick={() => void uploadPayees()}>
+                {busy ? "Reading the payees…" : `Check ${payees.length} payee${payees.length === 1 ? "" : "s"}`}
+              </button>
+              <p className="mt-2 text-xs text-[#322E25]/60 leading-5">
+                {aiLive ? "Like an upload, this makes one NEAR AI Cloud mapping call for the new list." : "Live AI mapping is off, so you confirm the column mapping by hand."}
+              </p>
+            </>
+          )}
+        </details>
       </section>
       <section>
         <p className="text-[10px] font-mono uppercase tracking-widest text-[#322E25]/60 mb-2 font-mono">Runs</p>

@@ -250,16 +250,16 @@ export function ClaimScreen() {
           {info.network !== "mainnet" && " This is a testnet run: the token is test USDC with no real value."}
         </p>
       </div>
+      <ClaimSteps current={!row ? 2 : row.claimed ? 4 : 3} />
       <TrustNotice />
       {info.network !== "mainnet" && (options?.some((o) => o.rail === "oneclick") || row?.claim?.simulated) && <CrossChainSimNotice />}
       {error && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f] font-mono">{error}</p>}
 
       {!row && (
         <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6">
-          <p className="font-bold font-mono uppercase tracking-tight">See your payout</p>
+          <p className="font-bold font-mono uppercase tracking-tight">Connect your wallet</p>
           <p className="mt-1 text-sm font-mono text-[#322E25]/70 leading-6">
-            Connect the wallet you were paid at and sign a short message. It proves the address is yours; it is not a transaction and costs no gas.
-            You will see only your own row.
+            Use the wallet you are paid at and sign one message. No transaction, no gas. You see only your own row.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             {evmWallets?.map((w) => (
@@ -376,8 +376,8 @@ export function ClaimScreen() {
 
       {row && !row.claimed && open && !prepared && (
         <div className="border border-[#322E25]/15 bg-[#E1D7C0]/60 p-6">
-          <p className="font-bold font-mono uppercase tracking-tight">Choose how to receive it</p>
-          <p className="mt-1 text-sm font-mono text-[#322E25]/70">The amount owed is fixed in USDC. You choose only where it goes.</p>
+          <p className="font-bold font-mono uppercase tracking-tight">Get paid</p>
+          <p className="mt-1 text-sm font-mono text-[#322E25]/70">The amount is fixed in USDC. You choose only where it goes.</p>
           <div className="mt-4 border border-[#322E25]/15">
             {options === null && <p className="p-4 text-sm font-mono text-[#322E25]/70">Loading options…</p>}
             {options?.map((o) => (
@@ -489,5 +489,31 @@ export function ClaimScreen() {
 
       {row && !row.claimed && !open && <p className="border border-[#8a5a00]/40 bg-[#fbf0d6] px-3 py-2 text-sm font-mono text-[#8a5a00]">This run is not accepting claims right now.</p>}
     </div>
+  );
+}
+
+/** Open link → connect wallet → get paid. */
+function ClaimSteps({ current }: { current: 2 | 3 | 4 }) {
+  // Step 1 (open the link) is done once this page shows; 4 means every step is done (claimed).
+  const steps = ["Open link", "Connect wallet", "Get paid"];
+  return (
+    <ol className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono uppercase tracking-widest" aria-label="Claim steps">
+      {steps.map((label, i) => {
+        const n = i + 1;
+        const complete = n < current;
+        const active = n === current && !complete;
+        return (
+          <li key={label} className="flex items-center gap-2" aria-current={active ? "step" : undefined}>
+            <span
+              className={`flex h-5 w-5 items-center justify-center border text-[10px] ${complete ? "border-[#0667DC] bg-[#0667DC] text-white" : active ? "border-[#0667DC] text-[#0667DC]" : "border-[#322E25]/30 text-[#322E25]/50"}`}
+            >
+              {complete ? "✓" : n}
+            </span>
+            <span className={complete || active ? "text-[#322E25]" : "text-[#322E25]/50"}>{label}</span>
+            {n < steps.length && <span className="text-[#322E25]/30">→</span>}
+          </li>
+        );
+      })}
+    </ol>
   );
 }

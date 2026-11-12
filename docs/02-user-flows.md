@@ -26,7 +26,7 @@ Approver                       Blindroll backend            NEAR AI Cloud (TEE) 
 ## Flow A — Approver: create a run
 
 1. **Sign in.** Connect a NEAR wallet. The backend verifies a NEP-413 signed message and checks that the account is an approver for the organization.
-2. **Upload CSV.** Any column names, any order. Max 500 rows for MVP.
+2. **Upload CSV.** Any column names, any order. Max 500 rows for MVP. Or **add payees by hand** (name, wallet, amount, memo) on the same screen: the browser turns them into an ordinary CSV (`apps/web/lib/client/payees.ts`) and uploads it, so it goes through the same mapping, rules and review (with `NEAR_AI_LIVE=1` that is one mapping call, like any new file). No invoice parsing.
 3. **Private AI cleanup.** The backend sends the header plus sample rows to NEAR AI Cloud. The model returns a column mapping and value normalization hints as strict JSON. Code applies them. (See [05](05-ai-pipeline-and-attestation.md).)
 4. **Review table.** One row per recipient: name, chain, address, amount (USDC), role/memo, and flags. Flags are colored: `error` blocks the run, `warning` needs an override reason.
 5. **Fix or override.** The approver edits a row or marks a warning as accepted, with a reason. Every change is logged and included in the report.
@@ -42,7 +42,7 @@ Approver                       Blindroll backend            NEAR AI Cloud (TEE) 
 
 ## Flow B — Recipient: claim
 
-1. Open `/claim/<run_key>`. The page shows the organization name, run name and deadline. No amounts, no list.
+1. Open `/claim/<run_key>`. The page shows the organization name, run name and deadline. No amounts, no list. A 3-step indicator (Open link → Connect wallet → Get paid) and the trust notice ("The Blindroll server can read the full payroll table…", docs/08) are shown at the top. "USDC on NEAR" is pre-selected and marked "Real on testnet"; cross-chain options carry "Estimated from live mainnet quote — delivery simulated on testnet" and a single simulation banner (docs/06).
 2. **Connect wallet.** EVM (MetaMask etc.) or NEAR. Solana is a stretch goal.
 3. **Sign a "view" message** (no gas). The backend verifies the signature and checks whether the address is in the run.
    - Not listed: "This wallet isn't in this payroll run." Nothing else is revealed.
