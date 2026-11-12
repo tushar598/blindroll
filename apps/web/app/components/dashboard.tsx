@@ -20,7 +20,7 @@ interface RunListItem {
 
 export function Dashboard() {
   const { me, loading, busy, error, signIn } = useSession();
-  const wallet = useNearWalletChoice();
+  const wallet = useNearWalletChoice(me?.network);
   if (loading) return <p className="text-sm font-mono text-[#322E25]/60">Loading…</p>;
   if (!me?.accountId) {
     return (

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { and, eq, lt } from "drizzle-orm";
 import { isNearAccountId } from "@blindroll/core";
 import { type Db, nonces, orgApprovers } from "./db";
-import { verifyNep413Signature } from "./nep413";
+import { normalizeEd25519PublicKey, verifyNep413Any } from "./nep413";
 
 export const SIGN_IN_MESSAGE = "Sign in to Blindroll as an approver";
 export const SIGN_IN_RECIPIENT = "blindroll";
@@ -47,20 +47,23 @@ export function approverOrgIds(db: Db, accountId: string): string[] {
  */
 export async function verifySignIn(
   db: Db,
-  input: { accountId: string; publicKey: string; signature: string; nonce: string },
+  input: { accountId: string; publicKey: string; signature: string; nonce: string; callbackUrl?: string },
   isFullAccessKey: (accountId: string, publicKey: string) => Promise<boolean>,
 ): Promise<string> {
   if (!isNearAccountId(input.accountId)) throw new HttpError(400, "bad_request", "accountId is not a valid NEAR account ID");
   if (!consumeNonce(db, input.nonce, "sign_in")) throw new HttpError(401, "bad_nonce", "The sign-in nonce is unknown, expired or already used");
-  const ok = verifyNep413Signature({
-    publicKey: input.publicKey,
+  const publicKey = normalizeEd25519PublicKey(input.publicKey);
+  if (!publicKey) throw new HttpError(400, "bad_request", "publicKey is not an ed25519 public key");
+  const ok = verifyNep413Any({
+    publicKey,
     signatureBase64: input.signature,
     message: SIGN_IN_MESSAGE,
     nonce: new Uint8Array(Buffer.from(input.nonce, "base64")),
     recipient: SIGN_IN_RECIPIENT,
+    ...(input.callbackUrl ? { callbackUrl: input.callbackUrl } : {}),
   });
   if (!ok) throw new HttpError(401, "bad_signature", "The wallet signature is not valid");
-  if (!(await isFullAccessKey(input.accountId, input.publicKey))) {
+  if (!(await isFullAccessKey(input.accountId, publicKey))) {
     throw new HttpError(401, "key_not_owned", "That key is not a full-access key of the account");
   }
   if (approverOrgIds(db, input.accountId).length === 0) {

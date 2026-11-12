@@ -90,18 +90,23 @@ export function demoOrgRefundAccount(env: Record<string, string | undefined> = p
 export const CLAIM_WINDOW = { minDays: 1, maxDays: 365, minMinutes: 10, maxMinutes: 180 } as const;
 
 /** NEAR wallets the client knows how to load (apps/web/lib/client/wallet.ts). Meteor is always offered. */
-export const KNOWN_NEAR_WALLETS = ["meteor-wallet", "intear-wallet", "sender"] as const;
+/**
+ * NEAR wallets this app can offer: every Wallet Selector module that works on testnet with an
+ * in-page NEP-413 signMessage (docs/07 "NEAR wallets"). Meteor is first and the default.
+ */
+export const KNOWN_NEAR_WALLETS = ["meteor-wallet", "intear-wallet", "sender", "nightly", "my-near-wallet"] as const;
 
 /**
- * Wallets offered in the UI. Optional env NEAR_WALLETS (comma-separated IDs from KNOWN_NEAR_WALLETS)
- * switches on the ones that were tested for this deployment; the default is Meteor only.
+ * Wallets offered in the UI. All known wallets by default. Optional env NEAR_WALLETS
+ * (comma-separated IDs from KNOWN_NEAR_WALLETS) only narrows the list; Meteor is always kept.
  */
 export function enabledNearWallets(env: Record<string, string | undefined> = process.env): string[] {
   const list = (env.NEAR_WALLETS ?? "").split(",").map((w) => w.trim()).filter(Boolean);
   for (const w of list) {
     if (!(KNOWN_NEAR_WALLETS as readonly string[]).includes(w)) throw new Error(`NEAR_WALLETS holds an unknown wallet ID (allowed: ${KNOWN_NEAR_WALLETS.join(", ")})`);
   }
-  return [...new Set(["meteor-wallet", ...list])];
+  if (list.length === 0) return [...KNOWN_NEAR_WALLETS];
+  return KNOWN_NEAR_WALLETS.filter((w) => w === "meteor-wallet" || list.includes(w));
 }
 
 export const MAX_RUN_ROWS = 500;

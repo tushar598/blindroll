@@ -93,7 +93,7 @@ export function ClaimScreen() {
   const [loadedAt, setLoadedAt] = useState(0);
   const [evmWallets, setEvmWallets] = useState<EvmWallet[] | null>(null);
   const [signer, setSigner] = useState<Signer | null>(null);
-  const nearWallet = useNearWalletChoice();
+  const nearWallet = useNearWalletChoice(info?.network);
   /** The NEAR account the chosen wallet remembers for this site (it may be left over from another page). */
   const [rememberedNear, setRememberedNear] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -194,7 +194,10 @@ export function ClaimScreen() {
         body = { chain: "evm", address: s.address, nonce: c.nonce, issued: c.issued, signature: await personalSign(s.wallet, s.address, message) };
       } else {
         const signed = await signInMessage(info.network, { message, recipient: c.recipient, nonceBase64: c.nonce });
-        body = { chain: "near", address: s.address, nonce: c.nonce, issued: c.issued, signature: signed.signature, publicKey: signed.publicKey };
+        body = {
+          chain: "near", address: s.address, nonce: c.nonce, issued: c.issued, signature: signed.signature, publicKey: signed.publicKey,
+          ...("callbackUrl" in signed && signed.callbackUrl ? { callbackUrl: signed.callbackUrl } : {}),
+        };
       }
       try {
         const r = await api<{ row: Row; token: string }>(`/api/claim/${runKey}/view`, { json: body });

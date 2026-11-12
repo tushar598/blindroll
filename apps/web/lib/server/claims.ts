@@ -19,7 +19,7 @@ import { HttpError, consumeNonce, issueNonce } from "./auth";
 import { ONECLICK_DESTINATIONS, ONECLICK_DRY_REFUND_STAND_IN, type ServerConfig } from "./config";
 import { decryptJson } from "./crypto";
 import { type Db, auditLog, claims, orgApprovers, orgs, runRows, runs } from "./db";
-import { verifyNep413Signature } from "./nep413";
+import { normalizeEd25519PublicKey, verifyNep413Any } from "./nep413";
 import type { RelayFn } from "./relayer";
 import { type ViewScope, createViewToken } from "./session";
 
@@ -134,7 +134,7 @@ async function rowView(deps: ClaimDeps, run: RunRecord, row: RowRecord) {
  */
 export async function verifyView(
   deps: ClaimDeps,
-  input: { runKey: string; chain: string; address: string; nonce: string; issued: string; signature: string; publicKey?: string },
+  input: { runKey: string; chain: string; address: string; nonce: string; issued: string; signature: string; publicKey?: string; callbackUrl?: string },
 ) {
   const run = loadRun(deps.db, input.runKey);
   const issuedMs = Date.parse(input.issued);
@@ -155,14 +155,16 @@ export async function verifyView(
     if (!ok) throw new HttpError(401, "bad_signature", "The wallet signature is not valid");
   } else if (input.chain === "near") {
     address = input.address;
-    if (!isNearAccountId(address) || !input.publicKey) throw new HttpError(400, "bad_request", "A NEAR account ID and public key are required");
+    const publicKey = input.publicKey ? normalizeEd25519PublicKey(input.publicKey) : null;
+    if (!isNearAccountId(address) || !publicKey) throw new HttpError(400, "bad_request", "A NEAR account ID and an ed25519 public key are required");
     const message = buildViewMessage({ runKey: input.runKey, address, nonce: input.nonce, issued: input.issued });
-    const ok = verifyNep413Signature({
-      publicKey: input.publicKey, signatureBase64: input.signature, message,
+    const ok = verifyNep413Any({
+      publicKey, signatureBase64: input.signature, message,
       nonce: new Uint8Array(Buffer.from(input.nonce, "base64")), recipient: VIEW_RECIPIENT,
+      ...(input.callbackUrl ? { callbackUrl: input.callbackUrl } : {}),
     });
     if (!ok) throw new HttpError(401, "bad_signature", "The wallet signature is not valid");
-    if (!(await deps.isFullAccessKey(address, input.publicKey))) throw new HttpError(401, "key_not_owned", "That key is not a full-access key of the account");
+    if (!(await deps.isFullAccessKey(address, publicKey))) throw new HttpError(401, "key_not_owned", "That key is not a full-access key of the account");
   } else {
     throw new HttpError(400, "unsupported_chain", "Only EVM and NEAR wallets are supported");
   }

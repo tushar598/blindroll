@@ -10,7 +10,7 @@ import { HttpError, SIGN_IN_MESSAGE, SIGN_IN_RECIPIENT, issueNonce, verifySignIn
 import type { ServerConfig } from "../lib/server/config";
 import { decrypt, encrypt } from "../lib/server/crypto";
 import { openDb, runRows, runs } from "../lib/server/db";
-import { serializeNep413 } from "../lib/server/nep413";
+import { acceptedCallbackUrl, serializeNep413 } from "../lib/server/nep413";
 import { type RunDeps, addEdit, addOverride, createRun, finalize, getAttestationText, getCreateArgs, getReportJson, getRun, listRuns, setManualMapping, syncRun } from "../lib/server/runs";
 import { createSessionToken, readSessionToken } from "../lib/server/session";
 
@@ -102,6 +102,61 @@ describe("NEP-413 sign-in", () => {
     await expect(verifySignIn(db, { accountId: APPROVER, publicKey, signature: sign(nonce), nonce }, yes)).rejects.toMatchObject({ code: "bad_nonce" });
     const unknown = Buffer.alloc(32, 1).toString("base64");
     await expect(verifySignIn(db, { accountId: APPROVER, publicKey, signature: sign(unknown), nonce: unknown }, yes)).rejects.toMatchObject({ code: "bad_nonce" });
+  });
+});
+
+describe("NEP-413 formats from different wallets", () => {
+  const sk = ed25519.utils.randomSecretKey();
+  const pkRaw = ed25519.getPublicKey(sk);
+  const publicKey = `ed25519:${base58(pkRaw)}`;
+  const yes = async () => true;
+  const sigBytes = (nonce: string, callbackUrl?: string) =>
+    ed25519.sign(sha256(serializeNep413({ message: SIGN_IN_MESSAGE, nonce: Buffer.from(nonce, "base64"), recipient: SIGN_IN_RECIPIENT, ...(callbackUrl ? { callbackUrl } : {}) })), sk);
+
+  it("accepts base64, base64url, hex and ed25519:<base58> signatures, and a public key without the prefix", async () => {
+    const db = openDb(":memory:");
+    const variants: Array<[string, (b: Uint8Array) => string, string]> = [
+      ["base64", (b) => Buffer.from(b).toString("base64"), publicKey],
+      ["base64url", (b) => Buffer.from(b).toString("base64url"), publicKey],
+      ["hex", (b) => Buffer.from(b).toString("hex"), publicKey],
+      ["ed25519:base58", (b) => `ed25519:${base58(b)}`, publicKey],
+      ["bare public key", (b) => Buffer.from(b).toString("base64"), base58(pkRaw)],
+    ];
+    for (const [, enc, pk] of variants) {
+      const nonce = issueNonce(db, "sign_in");
+      let checkedKey = "";
+      const account = await verifySignIn(db, { accountId: APPROVER, publicKey: pk, signature: enc(sigBytes(nonce)), nonce }, async (_a, key) => ((checkedKey = key), true));
+      expect(account).toBe(APPROVER);
+      expect(checkedKey).toBe(publicKey); // the access-key RPC check always gets the canonical form
+    }
+  });
+
+  it("verifies a signature that includes the callbackUrl the wallet was given (MyNearWallet)", async () => {
+    const db = openDb(":memory:");
+    const callbackUrl = "http://localhost:3000/claim/run-x";
+    let nonce = issueNonce(db, "sign_in");
+    expect(await verifySignIn(db, { accountId: APPROVER, publicKey, signature: Buffer.from(sigBytes(nonce, callbackUrl)).toString("base64"), nonce, callbackUrl }, yes)).toBe(APPROVER);
+    // Without the callbackUrl the same kind of signature does not verify.
+    nonce = issueNonce(db, "sign_in");
+    await expect(verifySignIn(db, { accountId: APPROVER, publicKey, signature: Buffer.from(sigBytes(nonce, callbackUrl)).toString("base64"), nonce }, yes)).rejects.toMatchObject({ code: "bad_signature" });
+    // A plain signature still verifies when a callbackUrl is sent along (wallets that ignore it).
+    nonce = issueNonce(db, "sign_in");
+    expect(await verifySignIn(db, { accountId: APPROVER, publicKey, signature: Buffer.from(sigBytes(nonce)).toString("base64"), nonce, callbackUrl }, yes)).toBe(APPROVER);
+  });
+
+  it("only accepts a callbackUrl on this app's own origin", () => {
+    expect(acceptedCallbackUrl("http://localhost:3000/claim/run-x?y=1", "http://localhost:3000")).toBe("http://localhost:3000/claim/run-x?y=1");
+    expect(acceptedCallbackUrl("https://evil.example/claim", "http://localhost:3000")).toBeUndefined();
+    expect(acceptedCallbackUrl("not a url", "http://localhost:3000")).toBeUndefined();
+    expect(acceptedCallbackUrl(42, "http://localhost:3000")).toBeUndefined();
+  });
+
+  it("rejects malformed keys and signatures", async () => {
+    const db = openDb(":memory:");
+    const nonce = issueNonce(db, "sign_in");
+    await expect(verifySignIn(db, { accountId: APPROVER, publicKey: "secp256k1:abc", signature: "AA==", nonce }, yes)).rejects.toMatchObject({ code: "bad_request" });
+    const n2 = issueNonce(db, "sign_in");
+    await expect(verifySignIn(db, { accountId: APPROVER, publicKey, signature: "not-a-signature!", nonce: n2 }, yes)).rejects.toMatchObject({ code: "bad_signature" });
   });
 });
 
@@ -248,11 +303,12 @@ describe("demo org approvers from DEMO_ORG_APPROVERS", () => {
     expect(() => demoOrgApprovers({ DEMO_ORG_APPROVERS: "a.testnet,Bad Account" })).toThrow("invalid");
   });
 
-  it("offers Meteor only by default; NEAR_WALLETS switches on known wallets and refuses unknown ones", async () => {
+  it("offers every known wallet by default; NEAR_WALLETS only narrows the list and keeps Meteor", async () => {
     const { enabledNearWallets } = await import("../lib/server/config");
-    expect(enabledNearWallets({})).toEqual(["meteor-wallet"]);
-    expect(enabledNearWallets({ NEAR_WALLETS: " intear-wallet , sender,intear-wallet" })).toEqual(["meteor-wallet", "intear-wallet", "sender"]);
+    expect(enabledNearWallets({})).toEqual(["meteor-wallet", "intear-wallet", "sender", "nightly", "my-near-wallet"]);
+    expect(enabledNearWallets({ NEAR_WALLETS: " sender , intear-wallet,sender" })).toEqual(["meteor-wallet", "intear-wallet", "sender"]);
     expect(enabledNearWallets({ NEAR_WALLETS: "meteor-wallet" })).toEqual(["meteor-wallet"]);
+    expect(enabledNearWallets({ NEAR_WALLETS: "nightly" })).toEqual(["meteor-wallet", "nightly"]);
     expect(() => enabledNearWallets({ NEAR_WALLETS: "phantom" })).toThrow("unknown wallet ID");
   });
 

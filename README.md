@@ -29,7 +29,7 @@
 
 | Step | What happens |
 |---|---|
-| Sign in | NEAR wallet (Meteor), signed message, not a transaction |
+| Sign in | NEAR wallet (Meteor, Intear, Sender, Nightly or MyNearWallet), signed message, not a transaction |
 | Upload CSV | Any column names, any format, up to 500 rows |
 | Private AI maps columns | NEAR AI Cloud (TEE-hosted model) returns a signed, schema-validated mapping; only the header and 5 sample rows (emails masked) are sent |
 | Rules check and review | Errors block finalize; warnings need a written reason |
@@ -89,6 +89,18 @@ The backend stores the table encrypted at rest (AES-256-GCM) and serves each rec
 | Relayer | [`relayer.blindroll-dev.testnet`](https://testnet.nearblocks.io/address/relayer.blindroll-dev.testnet) |
 | Example `create_run` | [transaction on NEARBlocks](https://testnet.nearblocks.io/txns/4Got5u17zqcup7Fk6NDGMtX5TrZbdD5cMU4Xcrqfgixu) |
 | Example gas-free claim | [transaction on NEARBlocks](https://testnet.nearblocks.io/txns/7cLq3BTUQA3jpPXbYQUQwReqgyvw3coxjjHFow6VPr4w) |
+
+---
+
+## Supported wallets
+
+| Wallet | Used for | Status |
+|---|---|---|
+| Meteor (NEAR) | Approvers and NEAR recipients | **Tested** on testnet |
+| Intear, Sender, Nightly, MyNearWallet (NEAR) | Approvers and NEAR recipients | **Untested**: offered by default, not yet tried end to end |
+| MetaMask or any EIP-6963 browser wallet (EVM) | EVM recipients (view + claim signature) | **Tested** with MetaMask |
+
+Left out, with reasons (no testnet, no message signing, or a relay service that would receive our requests): HOT, HERE, OKX, Bitget, Ledger, WalletConnect, NEAR Mobile ([docs/07](docs/07-wallet-verification-and-claims.md#near-wallets-2026-11-12)). Wallet Selector is deprecated upstream; migration to NEAR Connect is planned.
 
 ---
 
@@ -171,7 +183,7 @@ docs/              Full specs (product, architecture, contract, AI, privacy, API
 - **TEE attestation only partly verified.** The response signature and five offline consistency checks pass; the Intel TDX quote signature (DCAP) and the NVIDIA GPU evidence are not verified, so the report says `verified: false`.
 - **Refunds not proven on-chain.** `reopen_claim` is offered only after the refund transfer succeeds, but the contract itself does not verify the amount came back.
 - **Gas-free NEAR claims pay your own account only.** A different NEAR destination requires sending `claim_near` from your own wallet.
-- **One tested wallet.** Meteor only; Intear and Sender are wired but untested.
+- **One tested NEAR wallet.** Meteor is tested; Intear, Sender, Nightly and MyNearWallet are offered but untested (see Supported wallets).
 - **Cross-chain delivery not real on testnet.** The mainnet 1Click execution path is not built.
 - **No org management UI.** Approvers are set via environment config.
 

@@ -119,15 +119,17 @@ Still to apply:
 | 6 | **Done.** Spike A failed inside the hour; fallback B built, redeployed, proven on testnet (see "Gas-free NEAR claims" in section 2). Owner still has to press "Claim (gas-free)" once with a Meteor recipient |
 | 7 | **Account created by the owner** (`tushar-approver2.testnet` exists, 0.6 NEAR). It is now a default approver in code; the two-approver browser test is still to do |
 | 8 | **Worker part done.** Pre-push check clean; Railway settings in "Deploy on Railway" below; the hosted build was rehearsed from a clean copy. Nothing was pushed |
-| 9 | **Built, off by default, not verified in a browser.** Intear and Sender (see "More wallets" below) |
+| 9 | **Built, on by default (2026-11-12).** Meteor tested; Intear, Sender, Nightly, MyNearWallet untested (see "NEAR wallets" below) |
 | 10 | **Not started, on purpose.** The core is not done (owner's simulated test, hosted deploy, video), and 10(a) changes `reopen_claim`, which that simulated test exercises |
 
-### More wallets (decision 9, 2026-11-12)
-- The chosen claim path needs only an in-page NEP-413 `signMessage` made with a full-access key, plus `signAndSendTransaction` for approvers and for recipients who pay another account. Wired through Wallet Selector 10.1.4: **Meteor** (always on), **Intear** (`intear-wallet`) and **Sender** (`sender`).
-- **Intear and Sender are OFF until `NEAR_WALLETS=intear-wallet,sender` (or one of them) is set**, because nobody has tested them in a browser. When more than one wallet is enabled, a "NEAR wallet:" picker appears next to the sign-in button and on the claim page; the choice is remembered per browser. Code: `apps/web/lib/client/wallet.ts`, `app/components/near-wallet-choice.tsx`, `enabledNearWallets` in `lib/server/config.ts`.
-- **To verify each (owner, in a browser):** sign in as an approver, send one approver transaction, and view + claim as a recipient. Most likely failure: sign-in returns `key_not_owned` if the wallet signs messages with a key that is not a full-access key.
-- Left out: MyNearWallet (redirect wallet: sign-in and `signMessage` leave the page, which the one-click connect → sign flow cannot follow) and HOT (pulls a large SDK with native add-ons).
-- `pnpm-workspace.yaml` now lists `bufferutil` and `utf-8-validate` as not built. Without that, `pnpm install --frozen-lockfile` fails with `ERR_PNPM_IGNORED_BUILDS` (it would have failed on the host).
+### NEAR wallets (2026-11-12, separate commit so it can be reverted)
+- **Owner decision:** stay on Wallet Selector 10.1.4 (deprecated upstream, repo archived 2026-11-10; NEAR docs recommend NEAR Connect). NEAR Connect migration + its runtime code-download trust concern: docs/12 "Later".
+- **On by default:** Meteor (**Tested**), Intear, Sender, Nightly, MyNearWallet (**Untested**). `NEAR_WALLETS` now only narrows the list (Meteor always kept). New modules: `@near-wallet-selector/nightly` and `@near-wallet-selector/my-near-wallet` 10.1.4 (no other new packages).
+- **Left out, with reasons in docs/07 "NEAR wallets":** HOT (no testnet path; relays via HOT's servers without the extension), HERE (relay service), OKX (no confirmed testnet), Bitget (no signMessage), Ledger (needs a derivation-path UI; timebox), WalletConnect (WalletConnect Cloud relay + project ID), NEAR Mobile (no testnet).
+- **Picker modal** with inline icons and Tested/Untested badges (`app/components/near-wallet-choice.tsx`). A module that fails to load is skipped.
+- **MyNearWallet** in 10.1.4 uses a popup + `postMessage` (not a full-page redirect), so no return-trip handling was needed. It signs the NEP-413 `callbackUrl`: the client passes the current page URL and sends it to the server, which accepts it only on `APP_URL`'s origin.
+- **Server NEP-413:** accepts base64 / base64url / hex / `ed25519:<base58>` signatures and keys with or without the `ed25519:` prefix (normalized before the access-key check). Synthetic-signature tests only; no recorded signatures from the untested wallets.
+- **NOT verified in a browser:** every wallet except Meteor. The Meteor code path is unchanged apart from the shared picker UI and the normalized signMessage result.
 
 ### Deploy on Railway (decision 8, 2026-11-12) — the owner pushes and deploys
 **Pre-push check (run on 2026-11-12, all clean):** the only tracked env file is `.env.example`; no key, JWT or API key in any commit of the history or in the working tree (the `ed25519:` strings in `packages/core/test-vectors/ai/` are public signatures; the `0xac09…` key in tests is the public Hardhat key); `.env.local`, `data/`, `docs/samples/my-*.csv` are ignored and were never committed. `Near_build-UI-design/` is a separate git clone and is now in `.gitignore` (committing it would create a broken submodule entry). Repeat before pushing: `git ls-files | grep -iE "\.env|\.pem|\.sqlite|my-.*\.csv"` must print only `.env.example`.
@@ -183,12 +185,12 @@ Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see t
 1. **Owner:** re-test in the browser only what the review fixes touched (list in the 2026-11-12 review-fixes PROGRESS message): claim page (steps, notice, options, banner), run page (notice, claims list banner), verify page (per-check list), "Or add payees by hand".
 2. **Owner:** push to GitHub, deploy on Railway with the settings in section 3. The worker fixes anything that breaks on the hosted build.
 3. README: add the hosted URL (row "Hosted demo") and re-check every row after the deploy. Then the 2-minute video and submit by **14 Nov 2026 23:59 UTC**.
-4. **Optional, owner:** test Intear and/or Sender, then set `NEAR_WALLETS`.
+4. **Optional, owner:** test the untested wallets (checklist in the 2026-11-12 wallets report); mark a wallet tested in `apps/web/lib/client/wallet.ts` (`tested: true`) once it passes, or narrow `NEAR_WALLETS` if it fails.
 5. Only if time is left and the owner says yes: DCAP verification (needs a decision on `dcap-qvl` + collateral source), `reopen_claim` balance check (contract change + redeploy). Confidential Intents stays roadmap-only.
 
 ## 6. Open risks / known gaps
 - **No CLI steps remain in the product.** Runs created before 2026-11-12 (for example `run-Ngs7_871eapi`) still have `blindroll-dev.testnet` as approver and refund account in the contract; use a new run for the browser-only test.
-- **Intear and Sender are untested** and therefore off by default (`NEAR_WALLETS`).
+- **Intear, Sender, Nightly and MyNearWallet are untested** but on by default (labelled "Untested" in the picker). Narrow with `NEAR_WALLETS` if one misbehaves.
 - **Hosted build not yet run on Linux**; see "Deploy on Railway".
 - **One NEAR wallet connection per browser** is shared by approver pages and the claim page. The claim page shows the remembered account and offers "Switch account"; wallet-sent transactions check the signer first (`ensureWalletAccount` in `apps/web/lib/client/wallet.ts`).
 - **Export column `leaf_index`** is the Merkle tree position, not the row number of the uploaded file (the file row number is not stored after finalize). DAO/multisig approvals (SputnikDAO, Trezu) are a stretch goal listed there under "Later".

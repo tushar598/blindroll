@@ -9,15 +9,37 @@ import type { WalletSelector } from "@near-wallet-selector/core";
  * send a payout to another account, `signAndSendTransaction`. Gas-free claims need no more
  * (docs/07), so any Wallet Selector wallet with in-page `signMessage` fits.
  *
- * Meteor is always on. The other wallets are wired but OFF until the deployment lists them in
- * NEAR_WALLETS (see lib/server/config.ts), so a wallet appears only after it was tested.
+ * Every wallet below works on testnet and is offered by default; NEAR_WALLETS only narrows the
+ * list (lib/server/config.ts). `tested` says what was really tried in a browser (docs/07).
+ * Wallet Selector is deprecated upstream; a move to NEAR Connect is planned (docs/12 "Later").
  */
+interface WalletDef {
+  label: string;
+  /** Tried end to end in a browser on testnet (sign-in, a transaction, a claim). */
+  tested: boolean;
+  /** The wallet signs NEP-413 messages. All offered wallets do; kept so the check stays explicit. */
+  signsMessages: boolean;
+  /**
+   * The wallet needs a callbackUrl for signMessage and puts it into the signed payload
+   * (MyNearWallet, which opens a popup and falls back to a redirect). We pass the current page
+   * and send the same value to the server, which only accepts this app's own origin.
+   */
+  signsWithCallbackUrl: boolean;
+  load: () => Promise<WalletModuleFactory>;
+}
+type WalletModuleFactory = Parameters<typeof import("@near-wallet-selector/core").setupWalletSelector>[0]["modules"][number];
+
 const WALLETS = {
-  "meteor-wallet": { label: "Meteor", load: () => import("@near-wallet-selector/meteor-wallet").then((m) => m.setupMeteorWallet()) },
-  "intear-wallet": { label: "Intear", load: () => import("@near-wallet-selector/intear-wallet").then((m) => m.setupIntearWallet()) },
-  sender: { label: "Sender", load: () => import("@near-wallet-selector/sender").then((m) => m.setupSender()) },
-} as const;
+  "meteor-wallet": { label: "Meteor", tested: true, signsMessages: true, signsWithCallbackUrl: false, load: () => import("@near-wallet-selector/meteor-wallet").then((m) => m.setupMeteorWallet()) },
+  "intear-wallet": { label: "Intear", tested: false, signsMessages: true, signsWithCallbackUrl: false, load: () => import("@near-wallet-selector/intear-wallet").then((m) => m.setupIntearWallet()) },
+  sender: { label: "Sender", tested: false, signsMessages: true, signsWithCallbackUrl: false, load: () => import("@near-wallet-selector/sender").then((m) => m.setupSender()) },
+  nightly: { label: "Nightly", tested: false, signsMessages: true, signsWithCallbackUrl: false, load: () => import("@near-wallet-selector/nightly").then((m) => m.setupNightly()) },
+  "my-near-wallet": { label: "MyNearWallet", tested: false, signsMessages: true, signsWithCallbackUrl: true, load: () => import("@near-wallet-selector/my-near-wallet").then((m) => m.setupMyNearWallet()) },
+} satisfies Record<string, WalletDef>;
 type WalletId = keyof typeof WALLETS;
+/** Shown when a wallet cannot sign messages (sign-in and the claim page's view step need it). */
+export const NO_SIGN_MESSAGE =
+  "This wallet can't sign messages, which sign-in and viewing your payout need; use Meteor, Intear or Nightly for this step.";
 const DEFAULT_WALLET: WalletId = "meteor-wallet";
 const ACTIVE_KEY = "blindroll.near-wallet";
 
@@ -33,8 +55,32 @@ export function configureWallets(ids: readonly string[] | undefined): void {
   selector = undefined;
 }
 
-export function enabledWallets(): Array<{ id: string; label: string }> {
-  return enabled.map((id) => ({ id, label: WALLETS[id].label }));
+export interface WalletOption {
+  id: string;
+  label: string;
+  tested: boolean;
+  /** Data URI from the wallet module (nothing is fetched); null until the modules are loaded. */
+  iconUrl: string | null;
+}
+
+export function enabledWallets(): WalletOption[] {
+  return enabled.map((id) => ({ id, label: WALLETS[id].label, tested: WALLETS[id].tested, iconUrl: icons.get(id) ?? null }));
+}
+
+const icons = new Map<string, string>();
+
+/** Loads the wallet modules once and returns the offered wallets with their icons. */
+export async function loadWalletOptions(network: string): Promise<WalletOption[]> {
+  try {
+    const sel = await getSelector(network);
+    for (const m of sel.store.getState().modules) {
+      // Only inline icons: a module whose icon is a remote URL gets none, so nothing is fetched.
+      if (m.metadata.iconUrl?.startsWith("data:")) icons.set(m.id, m.metadata.iconUrl);
+    }
+  } catch {
+    /* icons are optional */
+  }
+  return enabledWallets();
 }
 
 /** The wallet used for the next connect or signature: the one last chosen in this browser, if still offered. */
@@ -64,7 +110,12 @@ export function setActiveWallet(id: string): void {
 function getSelector(network: string): Promise<WalletSelector> {
   if (network !== "testnet" && network !== "mainnet") throw new Error(`Wallets are not available on network "${network}"`);
   selector ??= (async () => {
-    const [{ setupWalletSelector }, ...modules] = await Promise.all([import("@near-wallet-selector/core"), ...enabled.map((id) => WALLETS[id].load())]);
+    // One wallet's module failing to load must never take the others (Meteor) down with it.
+    const [{ setupWalletSelector }, ...loaded] = await Promise.all([
+      import("@near-wallet-selector/core"),
+      ...enabled.map((id) => WALLETS[id].load().catch(() => null)),
+    ]);
+    const modules = loaded.filter((m): m is WalletModuleFactory => m !== null);
     return setupWalletSelector({ network, modules });
   })();
   return selector;
@@ -76,7 +127,8 @@ export async function currentWalletAccount(network: string): Promise<string | nu
     const wallet = await (await getSelector(network)).wallet(activeWalletId());
     // Meteor's getAccounts() throws ("No current account connected…") instead of returning [] when
     // nothing is connected yet, so a failure here just means "not connected".
-    return (await wallet.getAccounts())[0]?.accountId ?? null;
+    // MyNearWallet reports an empty account ID instead of none when signed out.
+    return (await wallet.getAccounts())[0]?.accountId || null;
   } catch {
     return null;
   }
@@ -125,13 +177,35 @@ export async function disconnectWallet(network: string): Promise<void> {
   }
 }
 
-/** NEP-413 message signature for sign-in. `nonceBase64` is the server's one-time 32-byte nonce. */
+/** True when the chosen wallet can make NEP-413 message signatures. */
+export function activeWalletSignsMessages(): boolean {
+  return WALLETS[activeWalletId() as WalletId].signsMessages;
+}
+
+/**
+ * NEP-413 message signature (sign-in and the claim page's view step). `nonceBase64` is the
+ * server's one-time 32-byte nonce. `callbackUrl` is returned when the wallet signed one; send it
+ * to the server with the signature.
+ */
 export async function signInMessage(network: string, p: { message: string; recipient: string; nonceBase64: string }) {
+  const def = WALLETS[activeWalletId() as WalletId];
+  if (!def.signsMessages) throw new Error(NO_SIGN_MESSAGE);
   const wallet = await (await getSelector(network)).wallet(activeWalletId());
-  if (!wallet.signMessage) throw new Error("This wallet cannot sign messages");
-  const signed = await wallet.signMessage({ message: p.message, recipient: p.recipient, nonce: Buffer.from(p.nonceBase64, "base64") });
+  if (!wallet.signMessage) throw new Error(NO_SIGN_MESSAGE);
+  const callbackUrl = def.signsWithCallbackUrl ? window.location.href : undefined;
+  let signed: Awaited<ReturnType<NonNullable<typeof wallet.signMessage>>>;
+  try {
+    signed = await wallet.signMessage({ message: p.message, recipient: p.recipient, nonce: Buffer.from(p.nonceBase64, "base64"), ...(callbackUrl ? { callbackUrl } : {}) });
+  } catch (err) {
+    if (/not supported/i.test(err instanceof Error ? err.message : String(err))) throw new Error(NO_SIGN_MESSAGE);
+    throw err;
+  }
   if (!signed) throw new Error("The wallet did not return a signature");
-  return signed;
+  // Some wallets hand back a PublicKey object or raw signature bytes instead of strings.
+  const raw = signed as { publicKey: unknown; signature: unknown };
+  const publicKey = String(raw.publicKey);
+  const signature = raw.signature instanceof Uint8Array ? Buffer.from(raw.signature).toString("base64") : String(raw.signature);
+  return { accountId: signed.accountId, publicKey, signature, ...(callbackUrl ? { callbackUrl } : {}) };
 }
 
 export interface TxResult {

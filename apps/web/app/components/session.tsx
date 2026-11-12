@@ -72,7 +72,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const accountId = await connectWallet(me.network, me.contractId);
       const { nonce, message, recipient } = await api<{ nonce: string; message: string; recipient: string }>("/api/auth/nonce");
       const signed = await signInMessage(me.network, { message, recipient, nonceBase64: nonce });
-      await api("/api/auth/near", { json: { accountId: signed.accountId || accountId, publicKey: signed.publicKey, signature: signed.signature, nonce } });
+      await api("/api/auth/near", {
+        json: { accountId: signed.accountId || accountId, publicKey: signed.publicKey, signature: signed.signature, nonce, ...("callbackUrl" in signed ? { callbackUrl: signed.callbackUrl } : {}) },
+      });
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
