@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type FetchLike, reportSha256, sha256, verifyProof } from "@blindroll/core";
+import { type FetchLike, checkAttestationEvidence, reportSha256, sha256, verifyProof } from "@blindroll/core";
 import { HttpError, SIGN_IN_MESSAGE, SIGN_IN_RECIPIENT, issueNonce, verifySignIn } from "../lib/server/auth";
 import type { ServerConfig } from "../lib/server/config";
 import { decrypt, encrypt } from "../lib/server/crypto";
 import { openDb, runRows, runs } from "../lib/server/db";
 import { serializeNep413 } from "../lib/server/nep413";
-import { type RunDeps, addEdit, addOverride, createRun, finalize, getCreateArgs, getReportJson, getRun, listRuns, setManualMapping, syncRun } from "../lib/server/runs";
+import { type RunDeps, addEdit, addOverride, createRun, finalize, getAttestationText, getCreateArgs, getReportJson, getRun, listRuns, setManualMapping, syncRun } from "../lib/server/runs";
 import { createSessionToken, readSessionToken } from "../lib/server/session";
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -169,6 +169,16 @@ describe("run flow: upload → review → finalize → create args → sync", ()
       expect(getReportJson(db, runKey)).not.toContain(r.address);
       expect(r.encPayload).not.toContain("example.org");
     }
+    // The stored attestation is served as is. The stub replays an attestation recorded with another
+    // nonce, so the browser's offline checks catch it at the nonce binding; everything else passes.
+    const att = getAttestationText(db, runKey)!;
+    const ev = checkAttestationEvidence({ ai: report.ai, attestationText: att });
+    expect(Object.fromEntries(ev.checks.map((c) => [c.id, c.state]))).toEqual({
+      attestation_document: "pass", signer_attested: "pass", quote_binds_signer_nonce: "fail", rtmr3_event_log: "pass",
+      mrconfigid_compose_hash: "pass", intel_quote_signature: "not_verified", nvidia_gpu_evidence: "not_verified",
+    });
+    expect(ev.fullyVerified).toBe(false);
+    expect(att).not.toContain("example.org");
     expect(() => finalize(deps, { accountId: APPROVER, runKey })).toThrow(HttpError); // already finalized
     expect(() => addEdit(deps, { accountId: APPROVER, runKey, edit: { kind: "remove", rowNumber: 1, reason: "late change" } })).toThrow(HttpError);
   });

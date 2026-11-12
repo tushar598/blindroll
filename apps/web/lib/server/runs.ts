@@ -413,3 +413,14 @@ export async function syncRun(
 export function getReportJson(db: Db, runKey: string): string | null {
   return db.select({ reportJson: runs.reportJson }).from(runs).where(eq(runs.runKey, runKey)).get()?.reportJson ?? null;
 }
+
+/**
+ * Public: the raw NEAR AI Cloud attestation stored for a finalized run, exactly as received.
+ * It holds no payroll data (NEAR AI's quote, event log, signing key and our nonce). Its sha256 is
+ * `ai.attestation.sha256` in the report, so a browser can check it was not swapped (docs/05).
+ */
+export function getAttestationText(db: Db, runKey: string): string | null {
+  const run = db.select({ reportJson: runs.reportJson, aiCallId: runs.aiCallId }).from(runs).where(eq(runs.runKey, runKey)).get();
+  if (!run?.reportJson || run.aiCallId === null) return null;
+  return db.select({ a: aiCalls.attestationJson }).from(aiCalls).where(eq(aiCalls.id, run.aiCallId)).get()?.a ?? null;
+}

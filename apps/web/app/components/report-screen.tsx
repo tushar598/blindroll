@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { type ReportVerification, verifyPublishedReport } from "@blindroll/core";
+import { type ReportVerification, checkAttestationEvidence, verifyPublishedReport } from "@blindroll/core";
 import { api, errorMessage } from "@/lib/client/api";
 import { viewContract } from "@/lib/client/chain";
 import { explorerAccount, explorerTx } from "@/lib/client/wallet";
@@ -24,7 +24,8 @@ interface OnChain {
   recipient_count: number;
   total_amount: string;
 }
-type Check = { state: "pass" | "fail" | "info"; title: string; detail: string };
+/** group "ai" = the NEAR AI Cloud signature and TEE attestation checks, shown in their own list. */
+type Check = { state: "pass" | "fail" | "info" | "not_verified"; title: string; detail: string; group?: "ai" };
 interface Result {
   v: ReportVerification;
   chain: { run: OnChain | null; rpcUrl: string; blockHeight: number } | { error: string };
@@ -97,25 +98,29 @@ async function runChecks(info: RunInfo): Promise<Result> {
   const ai = v.ai;
   if (ai?.state === "verified") {
     checks.push({
+      group: "ai",
       state: "pass",
-      title: "NEAR AI Cloud signature",
-      detail: `The signature over "${ai.signedText}" (model, request hash, response hash) was made by ${ai.signer}, the signing address in the report.`,
+      title: "Response signature (NEAR AI Cloud)",
+      detail: `The signature over "${ai.signedText}" (model, request hash, response hash) recovers to ${ai.signer}, the signing address in the report.`,
     });
   } else if (ai?.state === "failed") {
-    checks.push({ state: "fail", title: "NEAR AI Cloud signature", detail: `Not valid: ${ai.reason}.` });
+    checks.push({ group: "ai", state: "fail", title: "Response signature (NEAR AI Cloud)", detail: `Not valid: ${ai.reason}.` });
   } else if (ai?.state === "unsigned") {
-    checks.push({ state: "fail", title: "NEAR AI Cloud signature", detail: "An AI call mapped the columns, but the report holds no signature for it." });
+    checks.push({ group: "ai", state: "fail", title: "Response signature (NEAR AI Cloud)", detail: "An AI call mapped the columns, but the report holds no signature for it." });
   } else {
-    checks.push({ state: "info", title: "NEAR AI Cloud signature", detail: "Not applicable: the approver mapped the columns by hand, so no AI call backs this run." });
+    checks.push({ group: "ai", state: "info", title: "Response signature (NEAR AI Cloud)", detail: "Not applicable: the approver mapped the columns by hand, so no AI call backs this run." });
   }
   if (r.ai) {
-    checks.push({
-      state: "info",
-      title: "TEE attestation",
-      detail: v.attestationVerified
-        ? "The report marks the attestation as verified."
-        : "Not verified. The attestation was fetched before the AI call and its sha256 is in the report, but this version does not verify the Intel TDX quote. Only the signature above is checked.",
-    });
+    // The raw attestation is served by our backend; its sha256 is in the report, whose hash is on-chain.
+    let attestationText: string | null = null;
+    try {
+      const a = await fetch(`/api/runs/${info.runKey}/attestation`, { cache: "no-store" });
+      if (a.ok) attestationText = await a.text();
+    } catch {
+      attestationText = null;
+    }
+    const ev = checkAttestationEvidence({ ai: r.ai, attestationText });
+    for (const c of ev.checks) checks.push({ group: "ai", state: c.state, title: c.title, detail: c.detail });
   }
   return { v, chain, checks, at: new Date().toISOString() };
 }
@@ -133,7 +138,28 @@ const MARK: Record<Check["state"], { sign: string; cls: string; word: string }> 
   pass: { sign: "✓", cls: "text-[#0667DC]", word: "Passed" },
   fail: { sign: "✗", cls: "text-[#a3271f]", word: "Failed" },
   info: { sign: "–", cls: "text-[#322E25]/60", word: "Note" },
+  not_verified: { sign: "○", cls: "text-[#8a5a00]", word: "Not verified" },
 };
+
+function CheckList({ checks }: { checks: Check[] }) {
+  return (
+    <ul className="mt-3 divide-y divide-[#322E25]/10 border-t border-[#322E25]/15">
+      {checks.map((c) => (
+        <li key={c.title} className="flex gap-3 py-3 text-sm">
+          <span className={`w-4 shrink-0 text-base font-semibold leading-5 ${MARK[c.state].cls}`} aria-hidden>
+            {MARK[c.state].sign}
+          </span>
+          <div className="min-w-0">
+            <p className="font-semibold text-xs uppercase tracking-wide">
+              {c.title} <span className={`ml-1 text-[10px] font-normal ${MARK[c.state].cls}`}>{MARK[c.state].word}</span>
+            </p>
+            <p className="mt-0.5 break-words text-xs leading-5 text-[#322E25]/60">{c.detail}</p>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function ReportScreen() {
   const { runKey } = useParams<{ runKey: string }>();
@@ -175,6 +201,10 @@ export function ReportScreen() {
   if (!info) return <p className={`text-sm font-mono ${error ? "border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-[#a3271f]" : "text-[#322E25]/60"}`}>{error ?? "Loading…"}</p>;
   const r = result?.v.report ?? null;
   const failed = result?.checks.filter((c) => c.state === "fail").length ?? 0;
+  const passed = result?.checks.filter((c) => c.state === "pass").length ?? 0;
+  const notVerified = result?.checks.filter((c) => c.state === "not_verified").length ?? 0;
+  const reportChecks = result?.checks.filter((c) => c.group !== "ai") ?? [];
+  const aiChecks = result?.checks.filter((c) => c.group === "ai") ?? [];
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 font-mono">
@@ -192,7 +222,9 @@ export function ReportScreen() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="font-bold text-base">
-              {!result ? "Checking…" : failed === 0 ? "All checks passed" : `${failed} check${failed === 1 ? "" : "s"} failed`}
+              {!result
+                ? "Checking…"
+                : `${passed} passed · ${failed} failed${notVerified > 0 ? ` · ${notVerified} not verified` : ""}`}
             </p>
             <p className="mt-0.5 text-xs text-[#322E25]/60">
               Checked in your browser{result ? ` at ${new Date(result.at).toLocaleTimeString()}` : ""}: the hash and the signature are recomputed here, and the contract is read from a public NEAR RPC.
@@ -203,21 +235,16 @@ export function ReportScreen() {
           </button>
         </div>
         {result && (
-          <ul className="mt-5 divide-y divide-[#322E25]/10 border-t border-[#322E25]/15">
-            {result.checks.map((c) => (
-              <li key={c.title} className="flex gap-3 py-3 text-sm">
-                <span className={`w-4 shrink-0 text-base font-semibold leading-5 ${MARK[c.state].cls}`} aria-hidden>
-                  {MARK[c.state].sign}
-                </span>
-                <div className="min-w-0">
-                  <p className="font-semibold text-xs uppercase tracking-wide">
-                    {c.title} <span className={`ml-1 text-[10px] font-normal ${MARK[c.state].cls}`}>{MARK[c.state].word}</span>
-                  </p>
-                  <p className="mt-0.5 break-words text-xs leading-5 text-[#322E25]/60">{c.detail}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <>
+            <p className="mt-5 text-[10px] font-mono uppercase tracking-widest text-[#0667DC]">Report and contract</p>
+            <CheckList checks={reportChecks} />
+            <p className="mt-5 text-[10px] font-mono uppercase tracking-widest text-[#0667DC]">AI signature and TEE attestation</p>
+            <p className="mt-1 text-xs leading-5 text-[#322E25]/70">
+              Each check is listed on its own. The attestation checks show the evidence is consistent with the signed response.
+              They do not prove it came from real TDX hardware until the Intel quote signature is verified, which this version does not do.
+            </p>
+            <CheckList checks={aiChecks} />
+          </>
         )}
       </div>
 
