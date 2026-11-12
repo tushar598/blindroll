@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { findRepoRoot } from "@blindroll/core/env";
-import { DEMO_ORG, demoOrgApprovers } from "./config";
+import { DEMO_ORG, demoOrgApprovers, demoOrgRefundAccount } from "./config";
 
 // Schema: docs/09. Amounts are decimal strings of USDC base units (never floats).
 
@@ -202,8 +202,10 @@ export function openDb(file: string) {
   for (const c of ["payout_status", "quote_json", "refund_tx", "reopen_tx"]) addColumn("claims", c, "TEXT");
   const now = new Date().toISOString();
   sqlite.prepare("INSERT OR IGNORE INTO orgs (id, name, threshold, refund_account, created_at) VALUES (?, ?, ?, ?, ?)").run(
-    DEMO_ORG.id, DEMO_ORG.name, DEMO_ORG.threshold, DEMO_ORG.refundAccount, now,
+    DEMO_ORG.id, DEMO_ORG.name, DEMO_ORG.threshold, demoOrgRefundAccount(), now,
   );
+  // The refund account follows the configuration too (it applies to runs created on-chain afterwards).
+  sqlite.prepare("UPDATE orgs SET refund_account = ? WHERE id = ? AND refund_account <> ?").run(demoOrgRefundAccount(), DEMO_ORG.id, demoOrgRefundAccount());
   // The seeded approver list follows the configuration (it is replaced, not only added to).
   const approvers = demoOrgApprovers();
   const current = (sqlite.prepare("SELECT account_id FROM org_approvers WHERE org_id = ? ORDER BY position").all(DEMO_ORG.id) as Array<{ account_id: string }>).map((r) => r.account_id);

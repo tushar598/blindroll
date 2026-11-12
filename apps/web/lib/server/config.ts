@@ -48,10 +48,10 @@ export const DEMO_ORG = {
   id: "demo-org",
   name: "Blindroll Demo DAO",
   /** Defaults; DEMO_ORG_APPROVERS in the env file replaces them (see demoOrgApprovers). */
-  approvers: ["tushar1962005.testnet", "blindroll-dev.testnet"],
+  approvers: ["tushar1962005.testnet", "tushar-approver2.testnet"],
   threshold: 2,
-  /** Receives unclaimed funds after the deadline; also the treasury that holds the test USDC. */
-  refundAccount: "blindroll-dev.testnet",
+  /** Default; DEMO_ORG_REFUND_ACCOUNT replaces it (see demoOrgRefundAccount). A browser-wallet account. */
+  refundAccount: "tushar1962005.testnet",
 } as const;
 
 /**
@@ -71,6 +71,23 @@ export function demoOrgApprovers(env: Record<string, string | undefined> = proce
   }
   return list;
 }
+
+/**
+ * The account that receives unclaimed funds after the deadline. Optional env DEMO_ORG_REFUND_ACCOUNT
+ * replaces the default. It is stored in the contract at `create_run`, so a change applies to runs
+ * created afterwards.
+ */
+export function demoOrgRefundAccount(env: Record<string, string | undefined> = process.env): string {
+  const account = env.DEMO_ORG_REFUND_ACCOUNT?.trim() || DEMO_ORG.refundAccount;
+  if (!/^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/.test(account)) throw new Error("DEMO_ORG_REFUND_ACCOUNT is not a valid NEAR account ID");
+  return account;
+}
+
+/**
+ * Shortest and longest claim window. Minutes are offered on test networks only, so the
+ * reclaim-after-deadline step can be tried without waiting days (docs/12).
+ */
+export const CLAIM_WINDOW = { minDays: 1, maxDays: 365, minMinutes: 10, maxMinutes: 180 } as const;
 
 /** NEAR wallets the client knows how to load (apps/web/lib/client/wallet.ts). Meteor is always offered. */
 export const KNOWN_NEAR_WALLETS = ["meteor-wallet", "intear-wallet", "sender"] as const;

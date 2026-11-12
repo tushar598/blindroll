@@ -31,10 +31,14 @@ Approver                       Blindroll backend            NEAR AI Cloud (TEE) 
 4. **Review table.** One row per recipient: name, chain, address, amount (USDC), role/memo, and flags. Flags are colored: `error` blocks the run, `warning` needs an override reason.
 5. **Fix or override.** The approver edits a row or marks a warning as accepted, with a reason. Every change is logged and included in the report.
 6. **Generate report.** The backend builds the Merkle tree and the attested report, then shows the report hash and Merkle root.
-7. **Create run on-chain.** The approver calls `create_run` with the root, totals, report hash, approvers list, threshold and claim deadline.
-8. **Approve.** Each approver calls `approve_run`. When approvals reach the threshold, the run is `Approved`.
-9. **Fund.** An approver or the treasury sends USDC with `ft_transfer_call` to the contract with `msg = {"fund_run":"<run_key>"}`. When fully funded, the run becomes `Active`.
+7. **Create run on-chain.** The approver presses **Create run from my wallet**: `create_run` with the root, totals, report hash, approvers list, threshold, claim deadline and refund account.
+8. **Approve.** Each approver signs in with their own wallet and presses **Approve from my wallet** (`approve_run`). When approvals reach the threshold, the run is `Approved`.
+9. **Fund.** An approver presses **Fund … USDC from my wallet**: `ft_transfer_call` to the contract with `msg = {"fund_run":"<run_key>"}`. On testnet, **Get test USDC** mints the test token to that wallet first. When fully funded, the run becomes `Active`.
 10. **Share the claim link** (`/claim/<run_key>`) in Discord/Telegram. The link reveals nothing by itself.
+11. **Cancel (optional, before funding).** While the run is `Draft` or `Approved` and holds no funds, an approver can press **Cancel run** (`cancel_run`). A cancelled run cannot be funded or claimed.
+12. **Reclaim (after the deadline).** An approver presses **Reclaim unclaimed funds** (`reclaim_unclaimed`). The page shows the unclaimed amount and the refund account stored in the contract; the button is disabled until the claim deadline has passed. The run becomes `Closed`.
+
+**Every step above is a browser-wallet action. The product has no terminal step** (as built 2026-11-12). The contract owner's `set_paused` and `set_relayer` are operator actions outside the user flow; see [12](12-build-plan.md) → "Operator-only actions".
 
 ## Flow B — Recipient: claim
 
@@ -65,7 +69,7 @@ Approver                       Blindroll backend            NEAR AI Cloud (TEE) 
 
 | Situation | Behaviour |
 |---|---|
-| Recipient never claims | After the deadline, anyone can call `reclaim_unclaimed`; the remainder goes to the run's refund account |
+| Recipient never claims | After the deadline an approver presses **Reclaim unclaimed funds** on the run page (the contract lets anyone call `reclaim_unclaimed`); the remainder goes to the run's refund account |
 | Wrong address in the CSV | The recipient can't claim. They contact the team; approvers create a correction run (a new run with the fixed row). Never edit an active run's root |
 | Duplicate rows | Flagged as `error` before the run can be created |
 | Amount far above history or cap | `warning`; needs an override reason |
@@ -73,5 +77,5 @@ Approver                       Blindroll backend            NEAR AI Cloud (TEE) 
 | 1Click returns `REFUNDED` / `FAILED` | Funds return to the contract (refund target). An approver calls `reopen_claim`; the recipient claims again |
 | `INCOMPLETE_DEPOSIT` | Treat as failed; investigate; do not auto-retry |
 | Overfunding | The contract returns the excess in `ft_on_transfer` |
-| Run cancelled before funding | `cancel_run`; nothing to refund |
+| Run cancelled before funding | An approver presses **Cancel run** (`cancel_run`); nothing to refund |
 | Recipient's wallet compromised | Out of scope; recommend fresh payout wallets |

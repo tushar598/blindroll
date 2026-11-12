@@ -10,6 +10,9 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [claimDays, setClaimDays] = useState(14);
+  /** Test networks only: a claim window in minutes, to try "Reclaim unclaimed funds" without waiting days. */
+  const [unit, setUnit] = useState<"days" | "minutes">("days");
+  const [claimMinutes, setClaimMinutes] = useState(30);
   const editable = run.status === "review";
   const s = run.summary!;
   const byRow = new Map<number, RunFinding[]>();
@@ -139,10 +142,23 @@ export function ReviewPanel({ run, onChanged }: { run: RunView; onChanged: () =>
           </div>
           <div className="flex items-end gap-3">
             <div>
-              <label className="label" htmlFor="claim-days">Claim window (days)</label>
-              <input id="claim-days" className="field num mt-1 w-28" type="number" min={1} max={365} value={claimDays} onChange={(e) => setClaimDays(Number(e.target.value))} />
+              <label className="label" htmlFor="claim-days">Claim window ({unit})</label>
+              {unit === "days" ? (
+                <input id="claim-days" className="field num mt-1 w-28" type="number" min={1} max={365} value={claimDays} onChange={(e) => setClaimDays(Number(e.target.value))} />
+              ) : (
+                <input id="claim-days" className="field num mt-1 w-28" type="number" min={10} max={180} value={claimMinutes} onChange={(e) => setClaimMinutes(Number(e.target.value))} />
+              )}
             </div>
-            <button className="btn" disabled={!s.canFinalize || busy} onClick={() => void post("finalize", { claimDays })}>
+            {run.network !== "mainnet" && (
+              <div>
+                <label className="label" htmlFor="claim-unit">Unit (minutes: testnet only)</label>
+                <select id="claim-unit" className="field mt-1" value={unit} onChange={(e) => setUnit(e.target.value === "minutes" ? "minutes" : "days")}>
+                  <option value="days">days</option>
+                  <option value="minutes">minutes (to test reclaim)</option>
+                </select>
+              </div>
+            )}
+            <button className="btn" disabled={!s.canFinalize || busy} onClick={() => void post("finalize", unit === "minutes" ? { claimMinutes } : { claimDays })}>
               {busy ? "Working…" : "Finalize run"}
             </button>
           </div>

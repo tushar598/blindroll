@@ -17,9 +17,6 @@ const formatUsdc = (base: string) => {
   return `${(n / 1_000_000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
 };
 
-/** Copyable NEAR CLI commands are a local-development aid only; a production build never shows them (docs/12). */
-const SHOW_CLI = process.env.NODE_ENV === "development";
-
 /** create_run → approve_run (threshold) → fund. Each step is a real transaction from the signed-in approver's wallet. */
 export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accountId: string; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -27,7 +24,6 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
   const [lastTx, setLastTx] = useState<string | null>(null);
   const chain = run.chain;
   const fin = run.finalized!;
-  const net = `network-config ${run.network}`;
 
   async function sync(createTx?: string | null) {
     await api(`/api/runs/${run.runKey}/sync`, { json: createTx ? { createTx } : {} });
@@ -52,6 +48,14 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
     }, 5000);
     return () => clearInterval(timer);
   }, [waiting, runKey, onChanged]);
+
+  // Recipients claim without this page noticing, so re-read the contract once when the page opens:
+  // the unclaimed amount shown for a reclaim must be current.
+  useEffect(() => {
+    api(`/api/runs/${runKey}/sync`, { json: {} })
+      .then(() => onChanged())
+      .catch(() => undefined);
+  }, [runKey, onChanged]);
 
   // The signed-in approver's token balance, read by the browser from a public RPC while funding is due.
   const [balance, setBalance] = useState<string | null>(null);
@@ -123,17 +127,34 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
       return tx;
     });
 
+  /** After the deadline: sends everything nobody claimed to the run's refund account and closes the run. */
+  const reclaim = () =>
+    act("reclaim", async () => (await callContract(run.network, { signerId: accountId, receiverId: run.contractId, methodName: "reclaim_unclaimed", args: { run_key: run.runKey }, gasTgas: 100, depositYocto: "0" })).txHash);
+  /** Before any funding: marks the run Cancelled on the contract. It cannot be funded or claimed afterwards. */
+  const cancel = () => {
+    if (!window.confirm("Cancel this run on-chain? It cannot be funded or claimed afterwards; a corrected payroll needs a new run.")) return;
+    void act("cancel", async () => (await callContract(run.network, { signerId: accountId, receiverId: run.contractId, methodName: "cancel_run", args: { run_key: run.runKey }, gasTgas: 30, depositYocto: "0" })).txHash);
+  };
+
+  // The deadline is compared with the browser clock, re-checked every 15 s; the contract decides in the end.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const approvals = chain?.approvals ?? [];
   // Once the run is on-chain, its approvers are the ones stored in the contract.
   const approverList = chain?.approvers ?? run.org.approvers;
   const threshold = chain?.threshold ?? run.org.threshold;
   const iApproved = approvals.includes(accountId);
   const status = chain?.status.toLowerCase() ?? "not_created";
+  const isChainApprover = approverList.includes(accountId);
+  const deadlinePassed = chain ? now > chain.claim_deadline_ms : false;
+  const unclaimed = chain ? BigInt(chain.funded_amount) - BigInt(chain.claimed_amount) - BigInt(chain.reclaimed_amount) : 0n;
+  const canCancel = !!chain && (status === "draft" || status === "approved") && BigInt(chain.funded_amount) === 0n;
+  const showReclaim = !!chain && ["approved", "active", "closed"].includes(status) && (unclaimed > 0n || status === "closed" || deadlinePassed);
   const remaining = chain ? (BigInt(chain.total_amount) - BigInt(chain.funded_amount)).toString() : fin.totalAmount;
-  const cliApprove = (who: string) =>
-    `near contract call-function as-transaction ${run.contractId} approve_run json-args '{"run_key":"${run.runKey}"}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as ${who} ${net} sign-with-keychain send`;
-  const cliFund = (who: string) =>
-    `near contract call-function as-transaction ${run.tokenId} ft_transfer_call json-args '{"receiver_id":"${run.contractId}","amount":"${remaining}","msg":"{\\"fund_run\\":\\"${run.runKey}\\"}"}' prepaid-gas '100 Tgas' attached-deposit '1 yoctoNEAR' sign-as ${who} ${net} sign-with-keychain send`;
 
   return (
     <div className="space-y-4 font-mono">
@@ -191,10 +212,6 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
                 Waiting for another approver. They open this page, sign in with their own wallet and press Approve. This page updates by itself.
               </p>
             )}
-            {SHOW_CLI &&
-              approverList.filter((a) => !approvals.includes(a) && a !== accountId).map((a) => (
-                <Cli key={a} label={`Development only: ${a} approves from the NEAR CLI:`} command={cliApprove(a)} />
-              ))}
           </>
         )}
       </Step>
@@ -233,7 +250,6 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
                   : "This wallet does not hold enough USDC to fund the run."}
               </p>
             )}
-            {SHOW_CLI && <Cli label={`Development only: ${run.org.refundAccount} (treasury) funds from the NEAR CLI:`} command={cliFund(run.org.refundAccount)} />}
           </>
         )}
         {status === "active" && (
@@ -244,6 +260,45 @@ export function ChainSteps({ run, accountId, onChanged }: { run: RunView; accoun
           </p>
         )}
       </Step>
+
+      {showReclaim && chain && (
+        <Step title="Reclaim unclaimed funds" state={status === "closed" && unclaimed === 0n ? "done" : deadlinePassed ? "now" : "later"}>
+          {unclaimed > 0n ? (
+            <>
+              <p className="text-sm leading-6 text-[#322E25]/70">
+                <span className="num font-semibold text-[#322E25]">{formatUsdc(unclaimed.toString())} USDC</span> is unclaimed. After the claim deadline it can be sent back to{" "}
+                <a className="num underline text-[#0667DC]" href={explorerAccount(run.network, chain.refund_account)} target="_blank" rel="noreferrer">{chain.refund_account}</a>, the refund account stored in the contract for this run. This closes the run: nobody can claim afterwards.
+              </p>
+              <button className="btn mt-3" onClick={() => void reclaim()} disabled={busy !== null || !deadlinePassed}>
+                {busy === "reclaim" ? "Confirm in your wallet…" : `Reclaim ${formatUsdc(unclaimed.toString())} USDC to ${chain.refund_account}`}
+              </button>
+              {!deadlinePassed && <p className="mt-2 text-xs text-[#322E25]/60">Available after the claim deadline: {new Date(chain.claim_deadline_ms).toLocaleString()}.</p>}
+            </>
+          ) : status === "closed" ? (
+            <p className="text-sm leading-6">
+              Closed. <span className="num font-semibold">{formatUsdc(chain.reclaimed_amount)} USDC</span> went back to <span className="num">{chain.refund_account}</span>; {formatUsdc(chain.claimed_amount)} USDC was claimed.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm leading-6 text-[#322E25]/70">The deadline has passed and everything was claimed. Closing the run moves no funds.</p>
+              <button className="btn-quiet mt-3" onClick={() => void reclaim()} disabled={busy !== null}>
+                {busy === "reclaim" ? "Confirm in your wallet…" : "Close the run"}
+              </button>
+            </>
+          )}
+        </Step>
+      )}
+
+      {status === "cancelled" && <p className="border border-[#a3271f]/30 bg-[#f8e6e2] px-3 py-2 text-sm text-[#a3271f]">This run was cancelled on-chain. It cannot be funded or claimed; start a new run for a corrected payroll.</p>}
+
+      {canCancel && isChainApprover && (
+        <div className="border border-[#322E25]/15 p-4">
+          <p className="text-sm leading-6 text-[#322E25]/70">Found a mistake? An approver can cancel the run while it holds no funds. After funding, a run cannot be cancelled.</p>
+          <button className="btn-quiet mt-3" onClick={cancel} disabled={busy !== null}>
+            {busy === "cancel" ? "Confirm in your wallet…" : "Cancel run"}
+          </button>
+        </div>
+      )}
 
       <div className="flex items-center gap-3 pt-2">
         <button className="btn-quiet text-xs" onClick={() => void act("sync", async () => null)} disabled={busy !== null}>
@@ -276,25 +331,3 @@ function Step({ title, state, children }: { title: string; state: "done" | "now"
   );
 }
 
-function Cli({ label, command }: { label: string; command: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="mt-3">
-      <p className="text-xs text-[#322E25]/60">{label}</p>
-      <div className="mt-1 flex items-start gap-2">
-        <pre className="num flex-1 overflow-x-auto whitespace-pre-wrap break-all border border-[#322E25]/20 bg-[#E9E1CD] p-3 text-xs">{command}</pre>
-        <button
-          className="btn-quiet shrink-0 text-xs"
-          onClick={() => {
-            void navigator.clipboard.writeText(command).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            });
-          }}
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-    </div>
-  );
-}

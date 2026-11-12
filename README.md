@@ -34,7 +34,11 @@ You need the [Meteor wallet](https://meteorwallet.app) with a testnet account th
 | Choose **USDC on NEAR** and claim | Gas-free for both wallet kinds. EVM wallet: you sign a message and the relayer submits it. NEAR wallet, to your own account: nothing more to sign, the relayer submits `claim_near_relayed`, which can only pay your own account ([example transaction](https://testnet.nearblocks.io/txns/7cLq3BTUQA3jpPXbYQUQwReqgyvw3coxjjHFow6VPr4w)). The test USDC arrives and the transaction is linked |
 | Choose **USDC on Base** (badged **Simulated**) and claim | A real claim that pays the test USDC to a holding account. Nothing arrives on Base: 1Click has no testnet |
 | On the run page, **Claims** → **Simulate a failed delivery and refund** → **Reopen claim** | A real refund transfer back to the contract (linked), then a real `reopen_claim`. The recipient can claim again |
+| After the claim deadline, **Reclaim unclaimed funds** on the run page | The unclaimed amount and the refund account, read from the contract, then a real `reclaim_unclaimed` that sends it back and closes the run. To try it without waiting, finalize with a claim window in minutes (testnet only) |
+| On an unfunded run, **Cancel run** | A real `cancel_run`; the run can no longer be funded or claimed |
 | Open **Verify the report and export** | ✓ / ✗ for each check, computed in your browser: report hash, the hash stored on the contract (read from a public RPC), Merkle root, totals, and the NEAR AI Cloud signature. Approvers can download the reconciled CSV/JSON |
+
+Every step above happens in a browser wallet; the product has no terminal step. Two contract methods are **operator-only** and have no button on purpose: `set_paused` and `set_relayer` can be called only by the contract owner (the deploying account) to stop claims in an emergency or replace the relayer. They are not part of the approver or recipient flow.
 
 ## Run it locally
 

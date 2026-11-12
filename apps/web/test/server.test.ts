@@ -119,7 +119,7 @@ describe("run flow: upload → review → finalize → create args → sync", ()
     expect(run.status).toBe("review");
     expect(run.findings.map((f) => f.id)).toEqual(["R004_duplicate_address:6", "R006_outlier_vs_run:7", "R002_unknown_currency:8", "R001_invalid_address:9"]);
     expect(run.ai).toMatchObject({ model: "z-ai/glm-5.3-flash", signatureVerified: true, attestationVerified: false });
-    expect(run.org).toMatchObject({ approvers: ["tushar1962005.testnet", "blindroll-dev.testnet"], threshold: 2 });
+    expect(run.org).toMatchObject({ approvers: ["tushar1962005.testnet", "tushar-approver2.testnet"], threshold: 2 });
   });
 
   it("reuses the cached mapping for the same CSV (no second AI call)", async () => {
@@ -161,7 +161,7 @@ describe("run flow: upload → review → finalize → create args → sync", ()
     const report = JSON.parse(getReportJson(db, runKey)!);
     expect(reportSha256(report)).toBe(f.reportHash);
     expect(report.ai).toMatchObject({ signature_verified: true, attestation: { verified: false } });
-    expect(report.approval_policy).toEqual({ approvers: ["tushar1962005.testnet", "blindroll-dev.testnet"], threshold: 2 });
+    expect(report.approval_policy).toEqual({ approvers: ["tushar1962005.testnet", "tushar-approver2.testnet"], threshold: 2 });
     const rows = db.select().from(runRows).all();
     expect(rows).toHaveLength(6);
     for (const r of rows) {
@@ -177,8 +177,8 @@ describe("run flow: upload → review → finalize → create args → sync", ()
     const c = getCreateArgs(deps, { accountId: APPROVER, runKey });
     expect(c.contractId).toBe("blindroll.blindroll-dev.testnet");
     expect(c.args).toMatchObject({
-      run_key: runKey, approvers: ["tushar1962005.testnet", "blindroll-dev.testnet"], threshold: 2,
-      recipient_count: 6, total_amount: "14600500000", refund_account: "blindroll-dev.testnet",
+      run_key: runKey, approvers: ["tushar1962005.testnet", "tushar-approver2.testnet"], threshold: 2,
+      recipient_count: 6, total_amount: "14600500000", refund_account: "tushar1962005.testnet",
     });
     expect(c.args.claim_deadline_ms).toBeGreaterThan(Date.now());
     expect(c.depositYocto).toBe((50_000_000_000_000_000_000_000n + 6n * 2_250_000_000_000_000_000_000n).toString());
@@ -191,7 +191,7 @@ describe("run flow: upload → review → finalize → create args → sync", ()
       run_key: runKey, creator: APPROVER, approvers: c.args.approvers, threshold: 2, approvals: [APPROVER],
       merkle_root: c.args.merkle_root_hex, report_hash: c.args.report_hash_hex, recipient_count: 6, total_amount: "14600500000",
       funded_amount: "0", claimed_amount: "0", reclaimed_amount: "0", claim_deadline_ms: c.args.claim_deadline_ms,
-      refund_account: "blindroll-dev.testnet", status: "Draft",
+      refund_account: "tushar1962005.testnet", status: "Draft",
     };
     expect(await syncRun(deps, { accountId: APPROVER, runKey }, async () => chain)).toMatchObject({ onChain: true, status: "draft" });
     expect(getRun(deps, { accountId: APPROVER, runKey }).status).toBe("draft");
@@ -214,7 +214,14 @@ describe("manual mapping fallback (AI off)", () => {
     setManualMapping(deps, { accountId: APPROVER, runKey, mapping: m });
     for (const rowNumber of [6, 9]) addEdit(deps, { accountId: APPROVER, runKey, edit: { kind: "remove", rowNumber, reason: "bad row" } });
     addOverride(deps, { accountId: APPROVER, runKey, findingId: "R006_outlier_vs_run:7", reason: "approved grant" });
-    finalize(deps, { accountId: APPROVER, runKey });
+    // A claim window in minutes is a test-network aid (to try reclaim): bounded, and refused on mainnet.
+    expect(() => finalize(deps, { accountId: APPROVER, runKey, claimMinutes: 5 })).toThrow("10 to 180 minutes");
+    expect(() => finalize({ ...deps, config: { ...deps.config, network: "mainnet" } }, { accountId: APPROVER, runKey, claimMinutes: 30 })).toThrow("only available on test networks");
+    const before = Date.now();
+    finalize(deps, { accountId: APPROVER, runKey, claimMinutes: 30 });
+    const deadline = getRun(deps, { accountId: APPROVER, runKey }).finalized!.claimDeadlineMs;
+    expect(deadline).toBeGreaterThanOrEqual(before + 30 * 60_000);
+    expect(deadline).toBeLessThanOrEqual(Date.now() + 30 * 60_000);
     const report = JSON.parse(getReportJson(db, runKey)!);
     expect(report.ai).toBeNull();
     expect(report.notes).toEqual(["currency defaulted to USDC"]);
@@ -224,7 +231,7 @@ describe("manual mapping fallback (AI off)", () => {
 describe("demo org approvers from DEMO_ORG_APPROVERS", () => {
   it("defaults, parses a list and rejects bad input", async () => {
     const { demoOrgApprovers } = await import("../lib/server/config");
-    expect(demoOrgApprovers({})).toEqual(["tushar1962005.testnet", "blindroll-dev.testnet"]);
+    expect(demoOrgApprovers({})).toEqual(["tushar1962005.testnet", "tushar-approver2.testnet"]);
     expect(demoOrgApprovers({ DEMO_ORG_APPROVERS: " a.testnet, b.testnet " })).toEqual(["a.testnet", "b.testnet"]);
     expect(() => demoOrgApprovers({ DEMO_ORG_APPROVERS: "a.testnet" })).toThrow("2 to 10");
     expect(() => demoOrgApprovers({ DEMO_ORG_APPROVERS: "a.testnet,a.testnet" })).toThrow("repeat");
@@ -239,11 +246,28 @@ describe("demo org approvers from DEMO_ORG_APPROVERS", () => {
     expect(() => enabledNearWallets({ NEAR_WALLETS: "phantom" })).toThrow("unknown wallet ID");
   });
 
+  it("takes the refund account from DEMO_ORG_REFUND_ACCOUNT and updates an existing database", async () => {
+    const { demoOrgRefundAccount } = await import("../lib/server/config");
+    const { openDb, orgs } = await import("../lib/server/db");
+    expect(demoOrgRefundAccount({})).toBe("tushar1962005.testnet");
+    expect(demoOrgRefundAccount({ DEMO_ORG_REFUND_ACCOUNT: " treasury.testnet " })).toBe("treasury.testnet");
+    expect(() => demoOrgRefundAccount({ DEMO_ORG_REFUND_ACCOUNT: "Bad Account" })).toThrow("not a valid NEAR account ID");
+    const file = join(mkdtempSync(join(tmpdir(), "blindroll-")), "t.sqlite");
+    const refund = (d: ReturnType<typeof openDb>) => d.select().from(orgs).get()!.refundAccount;
+    expect(refund(openDb(file))).toBe("tushar1962005.testnet");
+    process.env.DEMO_ORG_REFUND_ACCOUNT = "treasury.testnet";
+    try {
+      expect(refund(openDb(file))).toBe("treasury.testnet");
+    } finally {
+      delete process.env.DEMO_ORG_REFUND_ACCOUNT;
+    }
+  });
+
   it("replaces the seeded approvers when the configuration changes", async () => {
     const { openDb, orgApprovers } = await import("../lib/server/db");
     const file = join(mkdtempSync(join(tmpdir(), "blindroll-")), "t.sqlite");
     const list = (d: ReturnType<typeof openDb>) => d.select().from(orgApprovers).all().map((a) => a.accountId);
-    expect(list(openDb(file))).toEqual(["tushar1962005.testnet", "blindroll-dev.testnet"]);
+    expect(list(openDb(file))).toEqual(["tushar1962005.testnet", "tushar-approver2.testnet"]);
     process.env.DEMO_ORG_APPROVERS = "tushar1962005.testnet,second.testnet";
     try {
       expect(list(openDb(file))).toEqual(["tushar1962005.testnet", "second.testnet"]);

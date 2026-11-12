@@ -33,7 +33,9 @@ export interface ChainRun {
   total_amount: string;
   funded_amount: string;
   claimed_amount: string;
+  reclaimed_amount: string;
   claim_deadline_ms: number;
+  refund_account: string;
   status: string;
 }
 export interface RunView {

@@ -1,6 +1,6 @@
 # HANDOFF — read this first in every new session
 
-Last updated: 2026-11-12 (decisions 6, 8 and 9 acted on: gas-free NEAR claims through `claim_near_relayed`, redeployed and proven on testnet; pre-push check clean and Railway settings below; Intear and Sender wired but off by default. Decision 7 waits for the owner; decision 10 not started. All vitest, typecheck, lint, cargo test and the production build pass). Update this file at the end of every work session.
+Last updated: 2026-11-12 (later session). Commit `8e19280` holds decisions 6, 8, 9. On top of it, UNCOMMITTED: the no-CLI work (CLI commands deleted, Reclaim and Cancel buttons, new default approvers and refund account, testnet-only claim window in minutes). Decision 7: the account exists, browser test pending; decision 10 not started. vitest 153 + 44, typecheck, lint and the production build pass. Update this file at the end of every work session.
 
 ## 1. Project in one paragraph
 Blindroll is claim-based payroll on NEAR for the NEAR Hackathon (tracks: Real-World Money + Privacy & Private AI). An approver uploads a messy payroll CSV; NEAR AI Cloud (TEE) proposes a column mapping; deterministic code normalizes and runs rules; an attested report is built; approvers sign and fund USDC into a contract that stores only a Merkle root and the report hash; each recipient verifies their wallet, sees only their own row, and claims in their chosen asset/chain (NEAR USDC or 1Click), gas-free. Full specs: `docs/` (start at `docs/README.md`). Rules: `AGENTS.md`.
@@ -21,6 +21,16 @@ Deadline: hackathon ends Nov 14, 2026 (confirm the exact time on https://nearhac
 | `ui-overhaul` | Complete brutalist UI overhaul matching Near_build-UI-design: `#E9E1CD` parchment background, `#E1D7C0]/60` cards, all buttons with `#0667DC` cobalt blue background, white text (`text-white font-mono`), white border & white drop-shadow with hover lift (`hover:bg-[#0556B8] hover:shadow-[3px_3px_0px_0px_#ffffff]`), `#322E25]/15` borders, dual-row marquee, responsive layouts |
 
 Tests at last check (2026-11-12): `pnpm -r test` 153 (core) + 43 (web) passed; `pnpm --filter web lint` clean; `pnpm -r typecheck` and `pnpm build` clean; `cargo test` 112 + 5 unit tests and 3 sandbox tests passed.
+
+### No terminal anywhere in the product (2026-11-12, uncommitted)
+- **Deleted:** the copyable NEAR CLI commands in `chain-steps.tsx` (`SHOW_CLI`, the command strings, the `Cli` component), in development too.
+- **Defaults:** approvers `tushar1962005.testnet` + `tushar-approver2.testnet`; refund account `tushar1962005.testnet`, replaceable with the new optional env `DEMO_ORG_REFUND_ACCOUNT` (an existing database row is updated at startup). Both apply to runs created afterwards. `tushar-approver2.testnet` exists on testnet (0.6 NEAR when checked on 2026-11-12), so the defaults work without `DEMO_ORG_APPROVERS`.
+- **Reclaim unclaimed funds** (run page, section "On-chain"): `reclaim_unclaimed` from the approver's wallet; shows the unclaimed amount and the refund account read from the contract; disabled until the deadline. After everything was claimed it becomes "Close the run".
+- **Cancel run:** `cancel_run`, shown to an on-chain approver while the run is Draft/Approved with 0 funded; asks for confirmation.
+- **Claim window in minutes (10–180), test networks only**, chosen at Finalize, so reclaim can be tried the same day. Refused by the server on mainnet. The deadline is real.
+- The run page now re-reads the contract once when it opens, so the unclaimed amount is current.
+- Operator-only actions (`set_paused`, `set_relayer`) have no UI on purpose; documented in README and docs/12.
+- **NOT verified in a browser:** the Reclaim and Cancel buttons (the contract methods themselves are covered by unit and sandbox tests). Docs updated: 02, 09, 12, README, `.env.example`.
 
 ### Gas-free NEAR claims (2026-11-12) — decision 6 is SETTLED: fallback B is built and live
 - **Spike A did not succeed inside the hour.** Wallet Selector's Meteor module bundles `@meteorwallet/sdk` 1.0.24 (no delegate-action call at all). `@meteorwallet/sdk` 3.24.1 has `near::sign_delegate_actions`, bundles with esbuild (about 2.5 MB, needs `buffer`/`util` polyfills) and can sit next to Wallet Selector, but it keeps its own connection, so the claim page would need a second Meteor sign-in plus one more popup. No real signature could be obtained: `wallet.meteorwallet.app` blocks automated browsers (Cloudflare), so only the owner's wallet could prove it. Nothing from the spike is in the repo.
@@ -84,7 +94,7 @@ Simulated (labelled): cross-chain delivery on testnet and the delivery failure t
 Done: model `z-ai/glm-5.3-flash`; testnet deploy.
 Done as well: approvers and threshold (seeded as `DEMO_ORG` in `apps/web/lib/server/config.ts`); "currency defaulted to USDC" report note; attestation fallback agreed (`ai.attestation.verified: false`, raw attestation stored, README limitation; revisit only if the MVP is done with time left).
 Still to apply:
-1. **Approvers:** #1 `tushar1962005.testnet` (Meteor wallet, browser; has 5 NEAR). #2 `blindroll-dev.testnet` (CLI). Threshold 2. (Seeded; #2 approves and funds with the CLI commands the UI shows.)
+1. **Approvers:** #1 `tushar1962005.testnet`, #2 `tushar-approver2.testnet` (both Meteor, browser). Threshold 2. Refund account `tushar1962005.testnet`. No CLI step exists in the product (owner decision 2026-11-12).
 2. **Keep both `reopen_claim` guards.**
 3. **"Proving the refund"** (balance vs liabilities check in `reopen_claim`): don't build now. Revisit Nov 13 only if the MVP works end to end; otherwise list it in the README as a known limitation.
 4. **CSV behaviours approved.** Add "currency defaulted to USDC" to the report when there's no currency column (do it in the report builder).
@@ -94,7 +104,7 @@ Still to apply:
 | # | Status |
 |---|---|
 | 6 | **Done.** Spike A failed inside the hour; fallback B built, redeployed, proven on testnet (see "Gas-free NEAR claims" in section 2). Owner still has to press "Claim (gas-free)" once with a Meteor recipient |
-| 7 | **Waiting for the owner.** `tushar-approver2.testnet` did not exist on testnet when checked on 2026-11-12. The code is ready (`DEMO_ORG_APPROVERS`) |
+| 7 | **Account created by the owner** (`tushar-approver2.testnet` exists, 0.6 NEAR). It is now a default approver in code; the two-approver browser test is still to do |
 | 8 | **Worker part done.** Pre-push check clean; Railway settings in "Deploy on Railway" below; the hosted build was rehearsed from a clean copy. Nothing was pushed |
 | 9 | **Built, off by default, not verified in a browser.** Intear and Sender (see "More wallets" below) |
 | 10 | **Not started, on purpose.** The core is not done (owner's simulated test, hosted deploy, video), and 10(a) changes `reopen_claim`, which that simulated test exercises |
@@ -147,7 +157,8 @@ Still to apply:
 | Relayer | `relayer.blindroll-dev.testnet` |
 | Sim sink (testnet-only simulation) | `sim-sink.blindroll-dev.testnet` — created by the owner on 2026-11-11 (0.5 NEAR); `SIM_SINK_ACCOUNT_ID` and `SIM_SINK_PRIVATE_KEY` are set. `pnpm simsink:check` (read-only) confirmed the key is a full-access key. Must never be set on mainnet |
 | Approver #1 | `tushar1962005.testnet` (Meteor web wallet) |
-| Approver #2 | `blindroll-dev.testnet` (CLI only) until the owner sets `DEMO_ORG_APPROVERS=tushar1962005.testnet,<second Meteor account>` in `.env.local` |
+| Approver #2 | `tushar-approver2.testnet` (Meteor; the owner is creating it). `blindroll-dev.testnet` is no longer an approver of new runs; it stays the contract owner (operator) |
+| Refund account | `tushar1962005.testnet` by default; `DEMO_ORG_REFUND_ACCOUNT` replaces it |
 | Owner's test recipients | A second Meteor testnet account and a MetaMask address (in the git-ignored `docs/samples/my-recipient-test.csv`; never commit it) |
 | Tooling | cargo-near 0.23, NEAR CLI 0.31.1 (in `~/.cargo/bin`), Node 24, pnpm, Rust 1.96 (no pin needed) |
 
@@ -156,17 +167,14 @@ Still to apply:
 Scripts in `scripts/` are `.mts` and run through `tsx` in `packages/core` (see the root `package.json` scripts).
 
 ## 5. Next steps, in order
-State on 2026-11-12, working tree uncommitted (the UI overhaul plus today's work; the owner commits and pushes):
-
-1. **Owner, in a browser (local `pnpm --filter web dev`):** (a) NEAR recipient: connect Meteor, view, **Claim (gas-free)** with the default receiver; (b) the simulated test: "USDC on Base" → refund → reopen → claim again (the `prepare` 400 that blocked it is fixed); (c) the report verify page and export.
-2. **Owner:** create `tushar-approver2.testnet` in Meteor, set `DEMO_ORG_APPROVERS=tushar1962005.testnet,tushar-approver2.testnet`, then create → approve ×2 → Get test USDC → Fund with no terminal. Then close items 1 and 6 of docs/12 "Before the deployed version".
-3. **Owner:** commit, push to GitHub, deploy on Railway with the settings in section 3. The worker fixes anything that breaks on the hosted build.
-4. **Optional, owner:** test Intear and/or Sender, then set `NEAR_WALLETS`.
-5. README: add the hosted URL (row "Hosted demo") and re-check every row after the deploy. Then the 2-minute video and submit by Nov 14.
-6. Only after 1–5: decision 10, in order (a) `reopen_claim` balance check, (b) DCAP attestation verification, (c) Confidential Intents, (d) DAO approvals. Stop and ship if the deadline gets close.
+1. **Owner:** restart the app (the new default approvers are seeded at startup), then run the browser checklist from the 2026-11-12 PROGRESS message: sign in → upload → finalize with a window in minutes → create → approve ×2 → Get test USDC → fund → claim (EVM + NEAR gas-free) → simulated refund → reopen → claim again → wait for the deadline → reclaim. Also try Cancel on a second, unfunded run.
+2. **Owner:** commit the no-CLI work, push to GitHub, deploy on Railway with the settings in section 3. The worker fixes anything that breaks on the hosted build.
+3. **Optional, owner:** test Intear and/or Sender, then set `NEAR_WALLETS`.
+4. README: add the hosted URL (row "Hosted demo") and re-check every row after the deploy. Then the 2-minute video and submit by Nov 14.
+5. Only after 1–4: decision 10, in order (a) `reopen_claim` balance check, (b) DCAP attestation verification, (c) Confidential Intents, (d) DAO approvals. Stop and ship if the deadline gets close.
 
 ## 6. Open risks / known gaps
-- **CLI steps:** the copyable CLI commands now render only in development. Funding and test-USDC minting are wallet buttons. Approver #2 is still a CLI-only account until the owner sets `DEMO_ORG_APPROVERS` (see `docs/12-build-plan.md` → "Before the deployed version").
+- **No CLI steps remain in the product.** Runs created before 2026-11-12 (for example `run-Ngs7_871eapi`) still have `blindroll-dev.testnet` as approver and refund account in the contract; use a new run for the browser-only test.
 - **Intear and Sender are untested** and therefore off by default (`NEAR_WALLETS`).
 - **Hosted build not yet run on Linux**; see "Deploy on Railway".
 - **One NEAR wallet connection per browser** is shared by approver pages and the claim page. The claim page shows the remembered account and offers "Switch account"; wallet-sent transactions check the signer first (`ensureWalletAccount` in `apps/web/lib/client/wallet.ts`).

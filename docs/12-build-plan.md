@@ -39,14 +39,22 @@ Confidential Intents test: run it in parallel on Nov 11 only if someone has spar
 
 ## Before the deployed version: replace CLI steps with browser wallets (required)
 
-Before the app is deployed for judges or users, every on-chain step must happen in a browser wallet, with no terminal. Status (2026-11-11):
+Before the app is deployed for judges or users, every on-chain step must happen in a browser wallet, with no terminal. Status (2026-11-12): **all code is done; items 1 and 5 still need the owner's browser.**
 
-1. **Approver #2 in a browser wallet.** *Code ready, waiting for the owner's account.* The demo org's approvers come from the optional env `DEMO_ORG_APPROVERS` (comma-separated; default `tushar1962005.testnet,blindroll-dev.testnet`). The owner creates a second Meteor testnet account and sets `DEMO_ORG_APPROVERS=tushar1962005.testnet,<second account>`. Threshold stays 2. It applies to runs finalized afterwards; a run already on-chain keeps the approvers stored in the contract, and the run page shows those.
+1. **Approver #2 in a browser wallet.** *Code done; waiting for the owner's account.* The default approvers are now `tushar1962005.testnet` and `tushar-approver2.testnet` (both Meteor accounts); the optional env `DEMO_ORG_APPROVERS` replaces them. Threshold stays 2. It applies to runs finalized afterwards; a run already on-chain keeps the approvers stored in the contract, and the run page shows those. `tushar-approver2.testnet` must exist before a run is created with it.
 2. **"Fund run" button.** *Done.* Sends `ft_transfer_call` (msg `{"fund_run":"<run_key>"}`) from the signed-in approver's wallet and shows that wallet's USDC balance (read by the browser from a public RPC).
 3. **"Get test USDC" button (testnet only).** *Done.* Mints the missing amount of mUSDC to the signed-in wallet. Not rendered when the run's network is `mainnet`; the server's `assertNetworkConfig` still runs at startup.
-4. **No CLI commands in the UI.** *Done.* The copyable commands render only when `NODE_ENV=development`, labelled "Development only"; a production build never shows them.
-5. **More wallets.** *Wired, off by default (2026-11-12).* Intear and Sender load through Wallet Selector and appear in a wallet picker only when the optional env `NEAR_WALLETS` lists them (`intear-wallet`, `sender`); they have not been tested in a browser. Meteor is always on. MyNearWallet is left out (redirect wallet). The gas-free NEAR claim is settled (2026-11-12): it uses `claim_near_relayed`, which needs only a NEP-413 message signature from the wallet, so any Wallet Selector wallet that supports `signMessage` fits the claim path.
-6. [02-user-flows.md](02-user-flows.md) and `HANDOFF.md` are updated when 1 and 5 are closed.
+4. **No CLI commands in the UI.** *Done (2026-11-12): deleted.* The copyable NEAR CLI commands are gone from the code, in development too.
+5. **More wallets.** *Wired, off by default (2026-11-12).* Intear and Sender load through Wallet Selector and appear in a wallet picker only when the optional env `NEAR_WALLETS` lists them (`intear-wallet`, `sender`); they have not been tested in a browser. Meteor is always on. MyNearWallet is left out (redirect wallet). The gas-free NEAR claim uses `claim_near_relayed`, which needs only a NEP-413 message signature from the wallet.
+6. **Refund account in a browser wallet.** *Done (2026-11-12).* Default `tushar1962005.testnet`; the optional env `DEMO_ORG_REFUND_ACCOUNT` replaces it. It is stored in the contract at `create_run`, so it applies to runs created afterwards.
+7. **"Reclaim unclaimed funds" button.** *Done (2026-11-12).* On the run page: `reclaim_unclaimed` from the approver's wallet, disabled until the claim deadline has passed, showing the amount and the refund account read from the contract.
+8. **"Cancel run" button.** *Done (2026-11-12).* `cancel_run` from an approver's wallet, shown only while the run is Draft or Approved and holds no funds.
+9. **Short claim window, test networks only.** *Done (2026-11-12).* At finalize, the claim window can be given in minutes (10 to 180) instead of days, so reclaim can be tried without waiting. The server refuses minutes when `NEAR_NETWORK=mainnet`, and the page does not offer them there. The deadline is real: after it, claims are refused by the contract.
+10. [02-user-flows.md](02-user-flows.md) and `HANDOFF.md`: *updated 2026-11-12.*
+
+### Operator-only actions (no UI, on purpose)
+
+`set_paused(paused)` and `set_relayer(relayer)` can only be called by the contract owner, the account that deployed it (`blindroll-dev.testnet` on testnet). They are emergency and maintenance actions of whoever operates the deployment: pause all claims and funding, or replace a compromised relayer. They are not part of any approver or recipient flow, so the app has no button for them; the operator sends them with the deployer's key. Deploying the contract and the app is operator work in the same sense.
 
 One Meteor connection is remembered per browser for this site. Wallet-sent transactions first check that the wallet is connected as the expected signer and ask to reconnect if it is not, so two approvers (or an approver and a recipient) can share a browser by switching accounts.
 

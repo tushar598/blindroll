@@ -24,7 +24,7 @@ import {
   validateMapping,
 } from "@blindroll/core";
 import { HttpError } from "./auth";
-import { DEFAULT_CLAIM_DAYS, MAX_RUN_ROWS, type ServerConfig } from "./config";
+import { CLAIM_WINDOW, DEFAULT_CLAIM_DAYS, MAX_RUN_ROWS, type ServerConfig } from "./config";
 import { decrypt, decryptJson, encrypt, encryptJson } from "./crypto";
 import { type Db, aiCalls, auditLog, orgApprovers, orgs, overrides, rowEdits, runRows, runs } from "./db";
 
@@ -287,12 +287,22 @@ export function addOverride(deps: RunDeps, input: { accountId: string; runKey: s
 }
 
 /** Locks the table: salts, leaves, Merkle root, proofs and the attested report (docs/05 step 5). */
-export function finalize(deps: RunDeps, input: { accountId: string; runKey: string; claimDays?: number }) {
+export function finalize(deps: RunDeps, input: { accountId: string; runKey: string; claimDays?: number; claimMinutes?: number }) {
   const { db, config } = deps;
   const run = loadRun(db, input.runKey, input.accountId);
   assertStatus(run, ["review"], "Finalizing");
-  const days = input.claimDays ?? DEFAULT_CLAIM_DAYS;
-  if (!Number.isInteger(days) || days < 1 || days > 365) throw new HttpError(400, "bad_request", "The claim window must be 1 to 365 days");
+  let windowMs: number;
+  if (input.claimMinutes !== undefined) {
+    // A window in minutes exists only to try the reclaim step on a test network.
+    if (config.network === "mainnet") throw new HttpError(400, "bad_request", "A claim window in minutes is only available on test networks");
+    const m = input.claimMinutes;
+    if (!Number.isInteger(m) || m < CLAIM_WINDOW.minMinutes || m > CLAIM_WINDOW.maxMinutes) throw new HttpError(400, "bad_request", `The claim window must be ${CLAIM_WINDOW.minMinutes} to ${CLAIM_WINDOW.maxMinutes} minutes`);
+    windowMs = m * 60 * 1000;
+  } else {
+    const days = input.claimDays ?? DEFAULT_CLAIM_DAYS;
+    if (!Number.isInteger(days) || days < CLAIM_WINDOW.minDays || days > CLAIM_WINDOW.maxDays) throw new HttpError(400, "bad_request", "The claim window must be 1 to 365 days");
+    windowMs = days * 24 * 60 * 60 * 1000;
+  }
   const cur = currentReview(db, run)!;
   const { org, approvers } = orgPolicy(db, run.orgId);
 
@@ -312,7 +322,7 @@ export function finalize(deps: RunDeps, input: { accountId: string; runKey: stri
     threshold: org.threshold,
   });
   const reportHash = reportSha256(report);
-  const claimDeadlineMs = Date.now() + days * 24 * 60 * 60 * 1000;
+  const claimDeadlineMs = Date.now() + windowMs;
   const byNumber = new Map(cur.review.rows.map((r) => [r.rowNumber, r]));
 
   db.transaction((tx) => {
