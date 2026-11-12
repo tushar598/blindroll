@@ -103,13 +103,14 @@ Fixtures: `packages/core/test-vectors/oneclick/` (`tokens.json`, two dry quotes)
   - Only EVM recipients, destination = their own verified address.
   - **Refund → reopen.** An approver presses "Simulate a failed delivery and refund". The failure is simulated; the refund is **real**: the backend signs, as the sim sink, `ft_transfer(receiver_id = Blindroll contract, amount = the claimed amount)`. Only when that transaction has succeeded does the payout become `refunded_simulated` (with `refund_tx`), and only then does the backend hand out the `reopen_claim` call and the UI enable "Reopen claim". A payout can be refunded once. This keeps the contract's balance whole, so a reopened claim is never paid from other runs' funds.
   - Labelling: `simulated: true` on the option, the prepare/submit/status responses and the payout list; a "Simulated" badge on the option, the review step, the claimed state and the approver's claims list; a row in the README table.
+  - Since 2026-11-12: each cross-chain option's note reads "Estimated from live mainnet quote — delivery simulated on testnet." ("USDC on NEAR" is listed first, pre-selected, and carries a "Real on testnet" badge.) The claim page (when cross-chain options or a simulated claim are shown) and the run page's claims list (when a simulated payout exists) show one banner (`CrossChainSimNotice` in `apps/web/app/components/notices.tsx`): *"1Click has no testnet. The quotes are real 1Click estimates at mainnet prices (a quote moves no funds). On a simulated claim the contract really pays the test USDC to a holding account, and nothing arrives on the destination chain. A refund test simulates the failure; the refund itself is a real transfer from the holding account back to the contract. Real delivery requires mainnet."* That wording was checked against the code: the quote is a dry quote, the claim pays the sim sink, the refund is the sim sink's `ft_transfer` to the contract.
   - Mainnet: `assertNetworkConfig` rejects any `SIM_SINK_ACCOUNT_ID` when `NEAR_NETWORK=mainnet` (and a non-test account anywhere), `simSinkSender()` returns null on mainnet, and the claim service refuses simulated options and refunds there.
   - Path to real (mainnet): request a non-dry quote, use its `depositAddress` as the payout target, submit the deposit, poll `/v0/status`; `REFUNDED` then comes from 1Click, not from a button. Not built.
 
 ### Refunds
 `REFUNDED` / `FAILED`: USDC returns to the contract (`refundTo`). The approver UI shows the status and a **Reopen claim** button (`reopen_claim`). The recipient then claims again with a new quote. `INCOMPLETE_DEPOSIT` shouldn't happen (we send the exact amount); treat it as failed and investigate.
 
-## Rail 3 — `confidential` (optional, timeboxed to 1 day)
+## Rail 3 — `confidential` (not built; see "Roadmap: confidential payout rail" below)
 
 Only if a real test works. Docs: Confidential Intents page and 1Click quote fields.
 - `depositType` / `recipientType` / `refundType` accept `CONFIDENTIAL_INTENTS`; the optional `confidentiality` field accepts `public` (default), `basic`, `advanced`.
@@ -118,3 +119,22 @@ Only if a real test works. Docs: Confidential Intents page and 1Click quote fiel
 - Shield and unshield are visible publicly. Recipients who want the "Keep it private" option need an Intents account (the docs show NEAR accounts; confirm whether EVM keys work).
 
 Test plan (mainnet, ~$2): shield 1 USDC → confidential transfer 0.50 USDC to a second account → check NearBlocks and the Intents explorer for what is visible → write the findings into [08](08-privacy-model.md).
+
+## Roadmap: confidential payout rail
+
+**Not built** (owner decision 2026-11-12: docs only). Checked against the live NEAR Intents docs on 2026-11-12 ([Confidential Intents](https://docs.near-intents.org/integration/market-makers/confidential-intents), [1Click making a request](https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart/making-a-request.md)).
+
+**What leaks today.** Every claim ends with a public `ft_transfer` from the Blindroll contract. The claim transaction's arguments carry the leaf, so it reveals that one recipient's address and amount, and the transfer reveals the payout target (the recipient's NEAR account, or a 1Click deposit address, whose delivery is then visible on the destination chain).
+
+**How a confidential rail would reduce that.** The payout would settle through NEAR Intents' confidential mode instead of a public transfer to the recipient:
+- The live docs describe a private NEAR fork, **FAR**, where the `intents.far` contract keeps shielded balances; "balances and swap details on FAR are not visible to the public". `intents.near` on NEAR is the public ledger.
+- The 1Click quote API accepts `CONFIDENTIAL_INTENTS` for `depositType`, `recipientType` and `refundType`, and an optional `confidentiality` field (`public` default, `basic`, `advanced`; the meaning of `basic` / `advanced` is described on a separate page: to be confirmed).
+- A claim could then pay into the recipient's confidential Intents balance, so the destination and the delivered amount would not appear as a public transfer to the recipient.
+- It **would reduce what a claim reveals; it would not make claims private.** Shield and unshield are public (tokens move to or from the Treasury account on NEAR), the operators of FAR see confidential transfers, and timing and amount correlation remain (see [08](08-privacy-model.md)). Whether the claim transaction's own arguments (the leaf) would still be public depends on the contract hook below: as designed today they would be, so the amount would still show in the claim call unless the leaf format changes. To be confirmed in a design pass.
+
+**What is needed.**
+1. **Access from the NEAR Intents (Defuse) team.** The docs say FAR is permissioned ("a small validator set with no public networking") and to "contact the Defuse team for access to the private relay URL and credentials". Whether an app (rather than a market maker) can get access: to be confirmed.
+2. **Mainnet testing.** The docs mention no testnet for Confidential Intents (1Click has none either). The test plan above (shield 1 USDC → confidential transfer → check what NearBlocks and the Intents explorer show) has to run on mainnet with small amounts.
+3. **A contract hook.** The contract must pay into the intents contract instead of a plain `ft_transfer` to the recipient: a new payout kind (e.g. `confidential`) that sends USDC with `ft_transfer_call` to `intents.near` (or to a 1Click deposit address from a quote with `recipientType: CONFIDENTIAL_INTENTS`), bound into the signed claim message like `oneclick` is today. The exact deposit method into `intents.near` for a third-party beneficiary is not described on the Confidential Intents page: to be confirmed. This is a contract change and a redeploy, so it needs the owner's approval.
+4. **Recipient side.** The recipient needs an Intents account and a User-Session token to read a confidential balance (see Rail 3 above). Whether EVM keys work for that: to be confirmed.
+

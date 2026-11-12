@@ -49,6 +49,7 @@ Run `status`: `needs_mapping` → `review` → `finalized` → then the on-chain
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/runs/:runKey/report` | The canonical report JSON (no salaries; see [05](05-ai-pipeline-and-attestation.md)) |
+| GET | `/api/runs/:runKey/attestation` | Public. The raw NEAR AI Cloud attestation stored for a finalized run, byte for byte (its sha256 is `ai.attestation.sha256` in the report). No payroll data. 404 when the run is not finalized or was mapped by hand. Used by the verify page's offline checks ([05](05-ai-pipeline-and-attestation.md#attestation-checks-2026-11-12)) |
 
 ### Claim (recipient)
 | Method | Path | Notes |

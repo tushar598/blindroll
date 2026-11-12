@@ -112,8 +112,37 @@ Observed live behaviour (matches the docs above):
 Implemented in `packages/core/src/ai/`:
 - `verifyAiSignature`: `signature_kind = provider_tee`, `text` = `<MODEL_ID>:<sha256 request>:<sha256 response>`, EIP-191 signer = `signing_address`. **Only `ecdsa` is supported** (it is the algorithm we request); any other algorithm is unverified.
 - `checkPreflightAttestation`: exactly one model report with the same signer and algorithm, which echoes our nonce and whose quote `report_data` binds signer + nonce.
-- **Not verified (the MVP fallback above is in use):** the Intel DCAP quote signature, RTMR3 event-log replay, MRCONFIGID and the NVIDIA GPU evidence. So the report says `ai.attestation.verified: false`, the raw report is stored, and the README must list this.
+- **Not verified at finalize (the MVP fallback above is in use):** the Intel DCAP quote signature and the NVIDIA GPU evidence. So the report says `ai.attestation.verified: false` and the raw report is stored. The verify page now runs the offline checks below on that stored report.
 - `requestColumnMapping`: preflight → one completion (one retry at most on an invalid mapping) → signature fetch (a 404 is retried 3 times) → checks. The caller enforces `NEAR_AI_LIVE` and the cache by `csv_sha256`.
+
+### Attestation checks (2026-11-12)
+
+**Field names, re-checked against the live docs on 2026-11-12** ([model attestations](https://docs.near.ai/cloud/verification/cloud-api/model-attestations.md), [quote, nonce and signer bindings](https://docs.near.ai/cloud/verification/reference/quote-nonce-signer.md)) and against the recorded fixture:
+- `GET /v1/attestation/report?model=<id>&provider=near&signing_algo=ecdsa&nonce=<64 hex>` (header `x-no-aliasing: true`) → `gateway_attestation` and `model_attestations[]`.
+- Each model report: `model_name`, `signing_address`, `signing_algo`, `signing_public_key`, `request_nonce`, `intel_quote` (TDX v4, hex), `event_log` (array of `{imr, event_type, digest, event, event_payload}`), `nvidia_payload` (JSON text: `nonce`, `evidence_list`, `arch`), `info` (`app_id`, `instance_id`, `app_cert`, `app_name`, `compose_hash`, `os_image_hash`, `mr_aggregated`, `key_provider_info`, `vm_config`, …). The docs also list `report_data` and `info.tcb_info.app_compose`; **the model report in our fixture has neither** (the gateway report has both).
+- report_data (64 bytes): bytes 0–31 = the signing address zero-padded on the right (ECDSA: 20 bytes + 12 zero bytes; with TLS binding it would be a hash instead, which we do not request); bytes 32–63 = the client nonce.
+- The docs ask a verifier to: verify `intel_quote` with an Intel DCAP verifier (they name `dcap-qvl` as an example) and apply a TCB policy; check report_data binds signer + nonce; replay `event_log` to the quote's RTMR3; check MRCONFIGID = `01` ‖ sha256(`app_compose`) ‖ 15 zero bytes; verify the GPU evidence when `nvidia_payload` is present.
+
+**What the verify page checks** (`checkAttestationEvidence` in `packages/core/src/ai/attestation.ts`, run in the browser on `GET /api/runs/<run_key>/attestation`, also by `pnpm report:verify`). Each check has its own result; nothing is folded into one "attested" badge:
+
+| # | Check | Result on the recorded fixture | How |
+|---|---|---|---|
+| a | Response signature | ✅ | EIP-191 signer recovered from `<model>:<request sha256>:<response sha256>` equals `signing_address` (existing check) |
+| b | Attestation document matches the report | ✅ | sha256 of the served bytes = `ai.attestation.sha256` (the report hash is on-chain, so the server cannot swap the document) |
+| c | Response signer is the attested model key | ✅ | exactly one `model_attestations[]` entry with the same `signing_address` + `signing_algo`, and its `model_name` = the report's model |
+| d | TDX quote binds the signer and our nonce | ✅ | quote is TDX v4; report_data = signer ‖ 12 zero bytes ‖ nonce; `request_nonce` = the report's nonce |
+| e | Event log replays to the quote's RTMR3 | ✅ | for `imr = 3` events, digest = sha384(le32(`event_type`) ‖ ":" ‖ `event` ‖ ":" ‖ `event_payload`), RTMR3 = fold of sha384(RTMR3 ‖ digest) from 48 zero bytes (the dstack rule; the fixture's RTMR3 events carry an empty `digest`) |
+| f | Quote's MRCONFIGID matches the compose hash | ✅ | MRCONFIGID = `01` ‖ `info.compose_hash` ‖ 15 zero bytes, and the RTMR3 `compose-hash` event agrees. `app_compose` itself is not in the model report, so the compose file is not checked |
+| g | Intel TDX quote signature (DCAP) | **not verified** | needs a DCAP verifier plus Intel's current collateral (PCK chain, TCB info, QE identity). Not added: it is a new dependency that also fetches collateral from Intel's or a third party's service, which needs the owner's approval |
+| h | NVIDIA GPU evidence | **not verified** | the page only notes that `nvidia_payload` is present and echoes our nonce; verifying it needs NVIDIA's attestation verifier (local or the NRAS service). Out of scope |
+
+**What this means:** checks b–f prove the evidence is internally consistent and tied to the signed response and our nonce. **They do not prove the quote came from real TDX hardware** until check g is done; the page says so above the list. The report field `ai.attestation.verified` stays `false`.
+
+**Not checked either:** the gateway attestation (the response is signed by the model key, not the gateway), the TLS fingerprint binding (not requested), a policy allowlist of measurements (MRTD, RTMR0–2, `os_image_hash`), and freshness beyond the nonce (the backend generates the nonce, so a verifier trusts the backend that it was fresh).
+
+**What full verification would need:** (1) an offline DCAP library such as Phala's `dcap-qvl` (Rust, with a WASM build) plus collateral fetched once per check from Intel PCS or a PCCS; (2) a pinned allowlist of expected measurements; (3) NVIDIA GPU evidence verification. Owner decision needed before (1).
+
+Tests: `packages/core/test/attestation.test.ts` (fixture: 5 pass, 2 not verified; tampered document, signer, model, nonce, report_data, event payload, compose hash and quote header each fail), and `apps/web/test/server.test.ts` (the served document matches; a stub that replays an attestation recorded with another nonce fails check d).
 
 ## Step 5 — Attested report
 
@@ -166,6 +195,6 @@ As built (`verifyPublishedReport` in `packages/core/src/report/verify.ts`, page 
 - The browser fetches the report bytes, checks they are canonical (RFC 8785) and hashes them.
 - The browser reads `get_run` directly from a **public NEAR RPC** (FastNEAR, then near.org as a fallback), not through our server, and compares `report_hash`, `merkle_root`, `total_amount` and `recipient_count`.
 - AI signature: the signed text is rebuilt from the report (`<model>:<request_sha256>:<response_sha256>`), the EIP-191 signer is recovered and compared with `signing_address`. A run mapped by hand shows "not applicable".
-- The TEE attestation is shown as **not verified** (the MVP fallback above); the page says so instead of showing a ✓.
+- The AI signature and the TEE attestation are listed in their own section, one row per check (a–h in "Attestation checks" above) with ✓ / ✗ / ○ "Not verified". The summary line counts passed, failed and not verified; there is no single "attested" badge.
 - Signed-in approvers also get the reconciled export (CSV/JSON) on this page.
 - `pnpm report:verify <run_key>` runs the same checks from the command line.
